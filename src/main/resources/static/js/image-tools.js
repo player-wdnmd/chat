@@ -820,11 +820,6 @@ function handleHistoryPointerDown(event) {
         deltaX: 0
     };
 
-    if (state.swipedHistoryId && String(state.swipedHistoryId) !== String(historyId)) {
-        state.swipedHistoryId = null;
-        render();
-    }
-
     row.classList.add("dragging");
     document.addEventListener("pointermove", handleHistoryPointerMove);
     document.addEventListener("pointerup", handleHistoryPointerUp);
@@ -857,6 +852,31 @@ function handleHistoryPointerUp() {
         main.style.transform = "";
     }
     row.classList.remove("dragging");
+
+    const isSwipeGesture = deltaX <= -12;
+
+    if (!isSwipeGesture) {
+        const hadDifferentSwipedRow = state.swipedHistoryId && String(state.swipedHistoryId) !== String(historyId);
+        if (String(state.swipedHistoryId) === String(historyId)) {
+            state.swipedHistoryId = null;
+            state.suppressHistoryClickId = historyId;
+            state.activeSwipe = null;
+            cleanupHistorySwipeListeners();
+            render();
+            return;
+        }
+
+        state.activeSwipe = null;
+        cleanupHistorySwipeListeners();
+        state.suppressHistoryClickId = historyId;
+
+        if (hadDifferentSwipedRow) {
+            state.swipedHistoryId = null;
+            render();
+        }
+        restoreHistoryEntry(historyId);
+        return;
+    }
 
     if (deltaX <= -36) {
         state.swipedHistoryId = historyId;
