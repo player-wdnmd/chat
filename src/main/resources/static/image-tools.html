@@ -81,15 +81,17 @@
                 </form>
 
                 <form id="processForm" class="image-form" hidden>
-                    <p id="processModeHint" class="image-form-tip">上传一张图片作为参考图或待处理图片，再用文字说明你想要的效果。</p>
+                    <p id="processModeHint" class="image-form-tip">可一次上传多张图片作为参考图或待处理图片，再用文字说明你想要的效果。</p>
                     <label class="auth-field">
                         <span>处理指令（说明你想改成什么效果）</span>
                         <textarea id="processPromptInput" class="image-textarea" rows="8" placeholder="例如：改成中国水墨画风，保留人物动作和构图"></textarea>
                     </label>
                     <label class="auth-field">
-                        <span>输入图片（参考图 / 待处理图片）</span>
-                        <input id="processImageInput" type="file" accept="image/*">
+                        <span>输入图片（可多选，作为参考图 / 待处理图片）</span>
+                        <input id="processImageInput" type="file" accept="image/*" multiple>
                     </label>
+                    <p class="image-form-tip">可多次点击继续添加图片，系统会自动累加，不会覆盖前一次已选内容。</p>
+                    <div id="processSelectedFiles" class="image-selected-files"></div>
                     <label class="image-checkbox-row">
                         <input id="localEditToggle" type="checkbox">
                         <span>仅修改局部区域</span>

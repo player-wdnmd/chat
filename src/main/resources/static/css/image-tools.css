@@ -29,6 +29,20 @@
     box-shadow: var(--shadow);
 }
 
+.image-main-area .auth-submit {
+    background: var(--primary-button-bg);
+    color: #ffffff;
+}
+
+.image-main-area .auth-submit:hover:not(:disabled) {
+    background: var(--primary-button-hover);
+}
+
+.image-main-area .auth-submit:disabled {
+    background: var(--primary-button-disabled);
+    color: rgba(255, 255, 255, 0.92);
+}
+
 .image-panel-header {
     display: flex;
     align-items: flex-start;
@@ -75,6 +89,56 @@
     color: var(--text-soft);
     font-size: 0.82rem;
     line-height: 1.5;
+}
+
+.image-selected-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.image-selected-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--surface-soft);
+    border: 1px solid rgba(17, 24, 39, 0.08);
+    color: var(--text);
+    font-size: 0.78rem;
+}
+
+.image-selected-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+}
+
+.image-selected-file-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(17, 24, 39, 0.08);
+    color: var(--text-soft);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.image-selected-file-remove:hover {
+    background: rgba(239, 68, 68, 0.14);
+    color: #b91c1c;
+}
+
+.image-selected-files-empty {
+    color: var(--text-soft);
+    font-size: 0.78rem;
 }
 
 .image-checkbox-row {

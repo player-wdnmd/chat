@@ -14,6 +14,9 @@
     --sidebar-text-soft: #a3a3a3;
     --accent: #10a37f;
     --accent-hover: #0d8a6b;
+    --primary-button-bg: #111111;
+    --primary-button-hover: #000000;
+    --primary-button-disabled: #9ca3af;
     --line: rgba(17, 24, 39, 0.08);
     --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
     --radius-lg: 18px;
@@ -124,7 +127,7 @@ select {
 }
 
 .auth-tab.active {
-    background: var(--accent);
+    background: var(--primary-button-bg);
     color: #ffffff;
 }
 
@@ -176,10 +179,21 @@ select {
     margin-top: 4px;
     padding: 11px 14px;
     border-radius: 12px;
-    background: var(--accent);
+    background: var(--primary-button-bg);
     color: #ffffff;
     cursor: pointer;
     font-weight: 800;
+    transition: background 150ms ease, opacity 150ms ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+    background: var(--primary-button-hover);
+}
+
+.auth-submit:disabled {
+    background: var(--primary-button-disabled);
+    color: rgba(255, 255, 255, 0.92);
+    cursor: not-allowed;
 }
 
 .account-panel {
@@ -1053,7 +1067,7 @@ select {
     min-width: 62px;
     padding: 8px 14px;
     border-radius: 999px;
-    background: var(--accent);
+    background: var(--primary-button-bg);
     color: #ffffff;
     cursor: pointer;
     font-weight: 700;
@@ -1061,10 +1075,11 @@ select {
 }
 
 .send-button:hover:not(:disabled) {
-    background: var(--accent-hover);
+    background: var(--primary-button-hover);
 }
 
 .send-button:disabled {
+    background: var(--primary-button-disabled);
     opacity: 0.65;
     cursor: progress;
 }

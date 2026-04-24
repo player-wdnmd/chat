@@ -31,6 +31,7 @@ const elements = {
     processModeHint: document.getElementById("processModeHint"),
     processPromptInput: document.getElementById("processPromptInput"),
     processImageInput: document.getElementById("processImageInput"),
+    processSelectedFiles: document.getElementById("processSelectedFiles"),
     localEditToggle: document.getElementById("localEditToggle"),
     maskField: document.getElementById("maskField"),
     processMaskInput: document.getElementById("processMaskInput"),
@@ -74,7 +75,8 @@ const state = {
     loadingTimerId: null,
     swipedHistoryId: null,
     activeSwipe: null,
-    suppressHistoryClickId: null
+    suppressHistoryClickId: null,
+    processSelectedFiles: []
 };
 
 boot();
@@ -136,6 +138,8 @@ function bindEvents() {
     elements.showProcessTab.addEventListener("click", () => switchView("process"));
     elements.generateForm.addEventListener("submit", handleGenerateSubmit);
     elements.processForm.addEventListener("submit", handleProcessSubmit);
+    elements.processImageInput.addEventListener("change", handleProcessImageChange);
+    elements.processSelectedFiles.addEventListener("click", handleProcessSelectedFilesClick);
     elements.localEditToggle.addEventListener("change", handleLocalEditToggleChange);
     elements.downloadButton.addEventListener("click", downloadCurrentImage);
     elements.resultImage.addEventListener("click", openImagePreview);
@@ -291,7 +295,7 @@ async function handleGenerateSubmit(event) {
 async function handleProcessSubmit(event) {
     event.preventDefault();
     const prompt = elements.processPromptInput.value.trim();
-    const imageFile = elements.processImageInput.files[0];
+    const imageFiles = state.processSelectedFiles;
     const maskFile = elements.processMaskInput.files[0];
     const useLocalEdit = elements.localEditToggle.checked || Boolean(maskFile);
 
@@ -299,8 +303,12 @@ async function handleProcessSubmit(event) {
         setStatus("请先输入处理指令。");
         return;
     }
-    if (!imageFile) {
+    if (imageFiles.length === 0) {
         setStatus("请先选择参考图或待处理图片。");
+        return;
+    }
+    if (useLocalEdit && imageFiles.length > 1) {
+        setStatus("仅修改局部区域模式暂时只支持 1 张原图，请取消多选后再试。");
         return;
     }
 
@@ -309,7 +317,7 @@ async function handleProcessSubmit(event) {
         if (useLocalEdit) {
             const formData = new FormData();
             formData.append("prompt", prompt);
-            formData.append("image", imageFile);
+            formData.append("image", imageFiles[0]);
             if (maskFile) {
                 formData.append("mask", maskFile);
             }
@@ -318,7 +326,7 @@ async function handleProcessSubmit(event) {
                 body: formData
             });
         } else {
-            const dataUrl = await readFileAsDataUrl(imageFile);
+            const dataUrls = await Promise.all(imageFiles.map(readFileAsDataUrl));
             response = await apiFetch(IMAGE_CHAT_COMPLETIONS_API_URL, {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
@@ -326,7 +334,7 @@ async function handleProcessSubmit(event) {
                     role: "user",
                     content: [
                         {type: "text", text: prompt},
-                        {type: "image_url", image_url: {url: dataUrl}}
+                        ...dataUrls.map((dataUrl) => ({type: "image_url", image_url: {url: dataUrl}}))
                     ]
                 })
             });
@@ -338,7 +346,7 @@ async function handleProcessSubmit(event) {
         if (useLocalEdit) {
             applyImageResponse(data, "局部编辑完成");
         } else {
-            applyCompatibleResponse(data, "图像转换完成", prompt);
+            applyCompatibleResponse(data, imageFiles.length > 1 ? "多图融合完成" : "图像转换完成", prompt);
         }
         await refreshImageHistory();
     });
@@ -346,6 +354,32 @@ async function handleProcessSubmit(event) {
 
 function handleLocalEditToggleChange() {
     updateProcessModeHint();
+    render();
+}
+
+function handleProcessImageChange(event) {
+    const newlySelectedFiles = Array.from(event.target.files || []);
+    if (newlySelectedFiles.length === 0) {
+        return;
+    }
+
+    const existingKeys = new Set(state.processSelectedFiles.map(buildProcessFileKey));
+    const uniqueFiles = newlySelectedFiles.filter((file) => !existingKeys.has(buildProcessFileKey(file)));
+    state.processSelectedFiles = [...state.processSelectedFiles, ...uniqueFiles];
+    elements.processImageInput.value = "";
+    render();
+}
+
+function handleProcessSelectedFilesClick(event) {
+    const removeButton = event.target.closest("[data-remove-process-file-index]");
+    if (!removeButton) {
+        return;
+    }
+    const index = Number(removeButton.getAttribute("data-remove-process-file-index"));
+    if (!Number.isInteger(index) || index < 0 || index >= state.processSelectedFiles.length) {
+        return;
+    }
+    state.processSelectedFiles.splice(index, 1);
     render();
 }
 
@@ -461,6 +495,7 @@ function render() {
     elements.processForm.hidden = state.view !== "process";
     elements.maskField.hidden = !(state.view === "process" && elements.localEditToggle.checked);
     updateProcessModeHint();
+    renderSelectedProcessFiles();
 
     const inputsDisabled = state.busy;
     const actionsDisabled = state.busy || !canUseTools;
@@ -799,6 +834,9 @@ function resetWorkspaceForView(view) {
 
     elements.processForm.reset();
     elements.maskField.hidden = true;
+    state.processSelectedFiles = [];
+    elements.processImageInput.value = "";
+    elements.processMaskInput.value = "";
 }
 
 function handleHistoryPointerDown(event) {
@@ -1021,8 +1059,35 @@ function updateProcessModeHint() {
         return;
     }
     elements.processModeHint.textContent = elements.localEditToggle.checked
-        ? "用输入图片做基础，可选上传遮罩图来指定“哪些区域允许修改”。"
-        : "上传一张输入图片作为参考图或待处理图片，再用文字说明你想要的效果。";
+        ? "局部编辑模式下只支持 1 张原图，可选上传遮罩图来指定“哪些区域允许修改”。"
+        : "可一次上传多张图片作为参考图或待处理图片，再用文字说明你想要的效果。";
+}
+
+function renderSelectedProcessFiles() {
+    if (!elements.processSelectedFiles) {
+        return;
+    }
+
+    if (state.processSelectedFiles.length === 0) {
+        elements.processSelectedFiles.innerHTML = `<p class="image-selected-files-empty">当前还没有选中图片。</p>`;
+        return;
+    }
+
+    elements.processSelectedFiles.innerHTML = state.processSelectedFiles.map((file, index) => `
+        <div class="image-selected-file">
+            <span class="image-selected-file-name">${escapeHtml(file.name)}</span>
+            <button
+                class="image-selected-file-remove"
+                type="button"
+                data-remove-process-file-index="${index}"
+                aria-label="移除 ${escapeAttribute(file.name)}"
+            >×</button>
+        </div>
+    `).join("");
+}
+
+function buildProcessFileKey(file) {
+    return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
 function readFileAsDataUrl(file) {
