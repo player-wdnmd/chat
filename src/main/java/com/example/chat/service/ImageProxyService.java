@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class ImageProxyService {
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int DEFAULT_MAX_UPLOAD_IMAGES = 5;
 
     private final ChatAppProperties appProperties;
     private final ImageApiProperties properties;
@@ -68,6 +70,7 @@ public class ImageProxyService {
                 isConfigured(),
                 appProperties.getImage().getCostPerRequest(),
                 properties.getMaxUploadSize().toBytes(),
+                resolveMaxUploadImages(),
                 properties.getAllowedMimeTypes(),
                 properties.getRateLimitMaxRequests(),
                 properties.getRateLimitWindow().toSeconds()
@@ -118,6 +121,7 @@ public class ImageProxyService {
     }
 
     public JsonNode chatCompletion(Long userId, ImageChatCompletionRequest request) {
+        validateChatCompletionImageCount(request);
         String model = resolveModel(request.model());
         String prompt = extractPrompt(request);
         return executeBillable(userId, () -> {
@@ -327,9 +331,11 @@ public class ImageProxyService {
             if (!properties.getAllowedMimeTypes().contains(mimeType)) {
                 throw new IllegalArgumentException("data URL 图片类型不支持，仅允许：" + String.join(", ", properties.getAllowedMimeTypes()));
             }
-            if (!url.contains(";base64,")) {
+            int base64MarkerIndex = url.indexOf(";base64,");
+            if (base64MarkerIndex < 0) {
                 throw new IllegalArgumentException("data URL 图片格式不正确。");
             }
+            validateDataUrlImage(url.substring(base64MarkerIndex + ";base64,".length()));
             return;
         }
 
@@ -338,6 +344,60 @@ public class ImageProxyService {
         }
 
         throw new IllegalArgumentException("image_url 仅支持 http(s) 或 data:image/... 格式。");
+    }
+
+    private void validateChatCompletionImageCount(ImageChatCompletionRequest request) {
+        int imageCount = countImageParts(request.content());
+        if (request.messages() != null && !request.messages().isEmpty()) {
+            imageCount = request.messages().stream()
+                    .mapToInt(message -> countImageParts(message.content()))
+                    .sum();
+        }
+
+        int maxUploadImages = resolveMaxUploadImages();
+        if (imageCount > maxUploadImages) {
+            throw new IllegalArgumentException("一次最多上传 " + maxUploadImages + " 张图片。");
+        }
+    }
+
+    private int countImageParts(List<ImageChatCompletionRequest.ContentPart> contentParts) {
+        if (contentParts == null || contentParts.isEmpty()) {
+            return 0;
+        }
+        return Math.toIntExact(contentParts.stream()
+                .filter(part -> part != null && "image_url".equals(part.type()))
+                .count());
+    }
+
+    private void validateDataUrlImage(String base64Payload) {
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(base64Payload);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("data URL 图片内容不是合法的 Base64。", exception);
+        }
+
+        long maxUploadBytes = properties.getMaxUploadSize().toBytes();
+        if (bytes.length > maxUploadBytes) {
+            throw new IllegalArgumentException("data URL 图片过大，单张不能超过 " + maxUploadBytes + " 字节。");
+        }
+
+        try {
+            BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(bytes));
+            if (bufferedImage == null) {
+                throw new IllegalArgumentException("data URL 不是有效图片文件。");
+            }
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("读取 data URL 图片失败。", exception);
+        }
+    }
+
+    private int resolveMaxUploadImages() {
+        Integer maxUploadImages = properties.getMaxUploadImages();
+        if (maxUploadImages == null || maxUploadImages < 1) {
+            return DEFAULT_MAX_UPLOAD_IMAGES;
+        }
+        return maxUploadImages;
     }
 
     private String extractPrompt(ImageChatCompletionRequest request) {

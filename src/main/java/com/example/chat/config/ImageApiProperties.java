@@ -16,6 +16,7 @@ public class ImageApiProperties {
     private Duration connectTimeout;
     private Duration readTimeout;
     private DataSize maxUploadSize;
+    private Integer maxUploadImages;
     private List<String> allowedMimeTypes;
     private Duration rateLimitWindow;
     private Integer rateLimitMaxRequests;

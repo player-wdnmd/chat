@@ -233,6 +233,9 @@ image-api:
   # 单个上传图片的大小上限。
   # 用于图片编辑、兼容转换中的输入图校验。
   max-upload-size: ${IMAGE_API_MAX_UPLOAD_SIZE:10MB}
+  # 单次请求最多允许携带多少张输入图片。
+  # 图像处理支持多图融合，这里默认最多 5 张。
+  max-upload-images: ${IMAGE_API_MAX_UPLOAD_IMAGES:5}
   # 允许上传/接收的图片 MIME 类型白名单。
   # 当前后端会校验 multipart 文件类型，以及 data:image/... 的 MIME 类型。
   allowed-mime-types:

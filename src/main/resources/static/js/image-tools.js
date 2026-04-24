@@ -32,6 +32,7 @@ const elements = {
     processPromptInput: document.getElementById("processPromptInput"),
     processImageInput: document.getElementById("processImageInput"),
     processSelectedFiles: document.getElementById("processSelectedFiles"),
+    processUploadHint: document.getElementById("processUploadHint"),
     localEditToggle: document.getElementById("localEditToggle"),
     maskField: document.getElementById("maskField"),
     processMaskInput: document.getElementById("processMaskInput"),
@@ -56,6 +57,7 @@ const state = {
         configured: false,
         operationCost: 0,
         maxUploadBytes: 0,
+        maxUploadImages: 5,
         allowedMimeTypes: [],
         rateLimitMaxRequests: 0,
         rateLimitWindowSeconds: 0
@@ -247,6 +249,7 @@ function normalizeImageMeta(raw) {
         configured: Boolean(raw?.configured),
         operationCost: Number(raw?.operationCost) || 0,
         maxUploadBytes: Number(raw?.maxUploadBytes) || 0,
+        maxUploadImages: Number(raw?.maxUploadImages) || 5,
         allowedMimeTypes: Array.isArray(raw?.allowedMimeTypes) ? raw.allowedMimeTypes : [],
         rateLimitMaxRequests: Number(raw?.rateLimitMaxRequests) || 0,
         rateLimitWindowSeconds: Number(raw?.rateLimitWindowSeconds) || 0
@@ -365,8 +368,25 @@ function handleProcessImageChange(event) {
 
     const existingKeys = new Set(state.processSelectedFiles.map(buildProcessFileKey));
     const uniqueFiles = newlySelectedFiles.filter((file) => !existingKeys.has(buildProcessFileKey(file)));
-    state.processSelectedFiles = [...state.processSelectedFiles, ...uniqueFiles];
     elements.processImageInput.value = "";
+
+    if (uniqueFiles.length === 0) {
+        setStatus("这些图片已经添加过了。");
+        return;
+    }
+
+    const maxUploadImages = resolveMaxUploadImages();
+    const remainingSlots = Math.max(0, maxUploadImages - state.processSelectedFiles.length);
+    if (remainingSlots === 0) {
+        setStatus(`一次最多上传 ${maxUploadImages} 张图片，请先移除部分图片后再继续添加。`);
+        return;
+    }
+
+    const acceptedFiles = uniqueFiles.slice(0, remainingSlots);
+    state.processSelectedFiles = [...state.processSelectedFiles, ...acceptedFiles];
+    if (acceptedFiles.length < uniqueFiles.length) {
+        setStatus(`一次最多上传 ${maxUploadImages} 张图片，超出的图片已忽略。`);
+    }
     render();
 }
 
@@ -983,7 +1003,7 @@ function shortenText(text, maxLength) {
 
 function buildConstraintsText() {
     const sizeText = state.imageMeta.maxUploadBytes > 0 ? formatBytes(state.imageMeta.maxUploadBytes) : "10MB";
-    return `单图上限 ${sizeText} | 仅能上传图片格式`;
+    return `一次最多 ${resolveMaxUploadImages()} 张 | 单图上限 ${sizeText} | 仅能上传图片格式`;
 }
 
 function formatBytes(bytes) {
@@ -1058,9 +1078,17 @@ function updateProcessModeHint() {
     if (!elements.processModeHint) {
         return;
     }
+    const maxUploadImages = resolveMaxUploadImages();
     elements.processModeHint.textContent = elements.localEditToggle.checked
         ? "局部编辑模式下只支持 1 张原图，可选上传遮罩图来指定“哪些区域允许修改”。"
-        : "可一次上传多张图片作为参考图或待处理图片，再用文字说明你想要的效果。";
+        : `可一次上传最多 ${maxUploadImages} 张图片作为参考图或待处理图片，再用文字说明你想要的效果。`;
+    if (elements.processUploadHint) {
+        elements.processUploadHint.textContent = `可多次点击继续添加图片，系统会自动累加；一次最多上传 ${maxUploadImages} 张，不会覆盖前一次已选内容。`;
+    }
+}
+
+function resolveMaxUploadImages() {
+    return state.imageMeta.maxUploadImages > 0 ? state.imageMeta.maxUploadImages : 5;
 }
 
 function renderSelectedProcessFiles() {

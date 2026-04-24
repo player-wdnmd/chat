@@ -23,10 +23,11 @@ public class ImageApiStartupCheck implements ApplicationRunner {
         }
 
         log.info(
-                "图片能力配置已加载：baseUrl={}，defaultModel={}，maxUploadBytes={}，rateLimit={} / {}s",
+                "图片能力配置已加载：baseUrl={}，defaultModel={}，maxUploadBytes={}，maxUploadImages={}，rateLimit={} / {}s",
                 properties.getBaseUrl(),
                 properties.getDefaultModel(),
                 properties.getMaxUploadSize().toBytes(),
+                properties.getMaxUploadImages(),
                 properties.getRateLimitMaxRequests(),
                 properties.getRateLimitWindow().toSeconds()
         );
