@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片工具</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/image-tools.css">
+</head>
+<body class="image-tools-page">
+<div class="workspace-shell image-workspace">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <img class="brand-mark" src="favicon.svg" alt="Chat logo">
+            <div class="brand-copy">
+                <p class="brand-name">Chat</p>
+            </div>
+        </div>
+
+        <section class="account-panel">
+            <div class="account-copy">
+                <p id="accountNameText" class="account-name">加载中</p>
+                <p id="accountPointsText" class="account-points">积分 0</p>
+            </div>
+            <div class="account-actions">
+                <button id="logoutButton" class="account-logout" type="button">退出</button>
+            </div>
+        </section>
+
+        <section class="history-section image-sidebar-section">
+            <div class="section-head">
+                <h2>图片操作</h2>
+            </div>
+            <div class="image-mode-list">
+                <button id="showGenerateTab" class="image-mode-button active" type="button">文字生图</button>
+                <button id="showProcessTab" class="image-mode-button" type="button">图像处理</button>
+            </div>
+        </section>
+
+        <a class="sidebar-action image-back-action" href="/">← 返回聊天</a>
+
+        <section class="image-sidebar-note">
+            <p class="image-sidebar-note-label">积分规则</p>
+            <p id="operationCostText" class="image-sidebar-note-value">加载中</p>
+            <p id="constraintsText" class="image-sidebar-note-meta"></p>
+        </section>
+
+        <section class="history-section image-history-section">
+            <div class="section-head">
+                <h2>最近生成</h2>
+                <div class="image-history-head-actions">
+                    <span id="historyCountText" class="section-count">0</span>
+                    <button id="clearHistoryButton" class="image-history-clear-button" type="button">清空全部</button>
+                </div>
+            </div>
+            <div id="historyList" class="image-history-list"></div>
+        </section>
+    </aside>
+
+    <main class="main-area image-main-area">
+        <div class="image-dashboard">
+            <section class="image-panel image-panel-form">
+                <div class="image-panel-header">
+                    <div>
+                        <p class="image-panel-kicker">Request</p>
+                        <h2 id="panelTitleText" class="image-panel-title">文字生图</h2>
+                    </div>
+                </div>
+
+                <form id="generateForm" class="image-form">
+                    <p class="image-form-tip">只输入文字描述，直接生成一张新图片。</p>
+                    <label class="auth-field">
+                        <span>提示词（描述你想生成什么）</span>
+                        <textarea id="generatePromptInput" class="image-textarea" rows="10" placeholder="例如：重庆夏天傍晚的江边街景，纪实摄影，通透光线"></textarea>
+                    </label>
+                    <button id="generateSubmitButton" class="auth-submit" type="submit">生成图片</button>
+                </form>
+
+                <form id="processForm" class="image-form" hidden>
+                    <p id="processModeHint" class="image-form-tip">上传一张图片作为参考图或待处理图片，再用文字说明你想要的效果。</p>
+                    <label class="auth-field">
+                        <span>处理指令（说明你想改成什么效果）</span>
+                        <textarea id="processPromptInput" class="image-textarea" rows="8" placeholder="例如：改成中国水墨画风，保留人物动作和构图"></textarea>
+                    </label>
+                    <label class="auth-field">
+                        <span>输入图片（参考图 / 待处理图片）</span>
+                        <input id="processImageInput" type="file" accept="image/*">
+                    </label>
+                    <label class="image-checkbox-row">
+                        <input id="localEditToggle" type="checkbox">
+                        <span>仅修改局部区域</span>
+                    </label>
+                    <label id="maskField" class="auth-field" hidden>
+                        <span>遮罩图（可选，用来标记允许修改的区域）</span>
+                        <input id="processMaskInput" type="file" accept="image/*">
+                    </label>
+                    <button id="processSubmitButton" class="auth-submit" type="submit">开始处理</button>
+                </form>
+            </section>
+
+            <section class="image-panel image-panel-result">
+                <div class="image-panel-header image-panel-header-result">
+                    <div>
+                        <p class="image-panel-kicker">Result</p>
+                        <h2 class="image-panel-title">返回结果</h2>
+                    </div>
+                    <button id="downloadButton" class="auth-submit image-download-button" type="button" disabled>下载图片</button>
+                </div>
+
+                <div id="emptyResult" class="image-empty-result">
+                    <p>提交请求后，这里会显示图片预览和结果摘要。点击图片可放大查看。</p>
+                </div>
+
+                <div id="loadingState" class="image-loading-state" hidden>
+                    <div class="image-loading-spinner" aria-hidden="true"></div>
+                    <p class="image-loading-text">图片处理中，请稍候，不要重复提交。</p>
+                    <p id="loadingHintText" class="image-loading-hint">已等待 0 秒</p>
+                </div>
+
+                <div id="resultContainer" class="image-result-container" hidden>
+                    <img id="resultImage" class="image-result-preview" alt="生成结果">
+                    <div class="image-result-meta">
+                        <p id="resultPromptText" class="image-result-prompt"></p>
+                        <p id="resultInfoText" class="image-result-info"></p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+</div>
+
+<div id="imagePreviewModal" class="image-preview-modal" hidden>
+    <div class="image-preview-backdrop"></div>
+    <div class="image-preview-dialog" role="dialog" aria-modal="true" aria-label="图片预览">
+        <button id="closePreviewButton" class="image-preview-close" type="button" aria-label="关闭预览">×</button>
+        <img id="previewImage" class="image-preview-image" alt="放大预览">
+    </div>
+</div>
+
+<script src="js/image-tools.js"></script>
+</body>
+</html>

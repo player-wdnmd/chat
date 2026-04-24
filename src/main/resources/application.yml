@@ -1,0 +1,247 @@
+# ---------------------------------------------------------------------------
+# Chat 项目配置说明
+# ---------------------------------------------------------------------------
+# 这份 application.yml 主要用于：
+# 1. 给本地开发提供默认值
+# 2. 给开源使用者说明“这个项目需要配什么、每个配置是干什么的”
+#
+# 推荐做法：
+# - 开发环境：优先使用环境变量覆盖
+# - 生产环境：不要把真实密钥、数据库密码直接写进 yml
+# - 开源前：务必把所有本地临时默认值替换掉或清空
+# ---------------------------------------------------------------------------
+spring:
+  application:
+    # Spring 应用名，主要用于日志、监控和应用识别。
+    name: chat
+  servlet:
+    multipart:
+      # ---------------------------------------------------------------------
+      # Spring/Tomcat multipart 上传上限
+      # ---------------------------------------------------------------------
+      # 注意：
+      # - 这里是“进入控制器之前”的底层解析限制
+      # - 如果这里不配，Spring Boot 默认单文件通常只有 1MB
+      # - image-api.max-upload-size 只是业务层校验，两者需要保持一致
+      # ---------------------------------------------------------------------
+
+      # 单个文件最大大小。
+      # 这里和 IMAGE_API_MAX_UPLOAD_SIZE 保持一致。
+      max-file-size: ${IMAGE_API_MAX_UPLOAD_SIZE:10MB}
+
+      # 整个 multipart 请求最大大小。
+      # 这里给到同样的默认值；如果以后一次上传多个文件，可以适当再调高。
+      max-request-size: ${IMAGE_API_MAX_UPLOAD_SIZE:10MB}
+  datasource:
+    # -----------------------------------------------------------------------
+    # MySQL 数据源配置
+    # -----------------------------------------------------------------------
+    # 本项目使用 MySQL 持久化：
+    # - 用户账号
+    # - Bearer Token 会话
+    # - 聊天状态
+    # - 技能
+    # - 图片历史
+    #
+    # 注意：
+    # - 项目不会自动执行 db/schema-mysql.sql 的完整建库脚本
+    # - 你需要先自己建库，并手动执行 SQL
+    # - 如果是已有库增量升级，按需执行 src/main/resources/db/*.sql
+    # -----------------------------------------------------------------------
+
+    # JDBC 连接串。
+    # 推荐通过环境变量 MYSQL_URL 覆盖。
+    # 例子：
+    # jdbc:mysql://localhost:3306/chat?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/chat?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    # 数据库用户名。
+    # 推荐通过 MYSQL_USERNAME 覆盖。
+    username: ${MYSQL_USERNAME:}
+    # 数据库密码。
+    # 当前默认值仅适合本地开发调试；开源或上线前建议改为空默认值并完全依赖环境变量。
+    password: ${MYSQL_PASSWORD:}
+    # MySQL 8 驱动类，通常无需修改。
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+logging:
+  level:
+    # 项目自身日志级别。
+    # 常见可选值：DEBUG / INFO / WARN / ERROR
+    # 默认 INFO，适合大多数本地开发和线上环境。
+    com.example.chat: INFO
+
+  pattern:
+    # 控制台日志格式。
+    # 这里包含了 requestId，便于把同一次 API 请求的日志串起来看。
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId:-no-req}] %logger{36} - %msg%n"
+
+server:
+  # HTTP 服务端口。
+  # 本地默认 8080，可通过 SERVER_PORT 覆盖。
+  # 例如：
+  # SERVER_PORT=8081
+  port: ${SERVER_PORT:8080}
+
+chat-app:
+  # -----------------------------------------------------------------------
+  # 项目级运行时配置
+  # -----------------------------------------------------------------------
+  # 这里放的是“业务运行常量”，例如：
+  # - 无限积分哨兵值
+  # - 注册默认积分
+  # - 聊天 / 图片操作的积分消耗
+  # - 前端 localStorage token key
+  # - 聊天默认 system prompt
+  # - 默认 Skill 模板文件位置
+  # -----------------------------------------------------------------------
+
+  limits:
+    # 用于表示“无限积分”的哨兵值。
+    unlimited-points: ${CHAT_APP_UNLIMITED_POINTS:2147483647}
+
+    # 兼容旧数据时，允许在哨兵值附近一定范围内继续视为“无限积分”。
+    unlimited-points-tolerance: ${CHAT_APP_UNLIMITED_POINTS_TOLERANCE:1000}
+
+  auth:
+    # 新用户注册后的默认积分。
+    register-default-points: ${CHAT_APP_REGISTER_DEFAULT_POINTS:0}
+
+    # 会话最大空闲时间。
+    # 超过这个时间未使用的 Bearer Token 会自动失效。
+    session-max-idle: ${CHAT_APP_SESSION_MAX_IDLE:30d}
+
+    # 登录接口限流窗口与阈值。
+    login-rate-limit-window: ${CHAT_APP_LOGIN_RATE_LIMIT_WINDOW:5m}
+    login-rate-limit-max-requests: ${CHAT_APP_LOGIN_RATE_LIMIT_MAX_REQUESTS:20}
+
+    # 注册接口限流窗口与阈值。
+    register-rate-limit-window: ${CHAT_APP_REGISTER_RATE_LIMIT_WINDOW:10m}
+    register-rate-limit-max-requests: ${CHAT_APP_REGISTER_RATE_LIMIT_MAX_REQUESTS:10}
+
+    # 兑换接口限流窗口与阈值。
+    redeem-rate-limit-window: ${CHAT_APP_REDEEM_RATE_LIMIT_WINDOW:5m}
+    redeem-rate-limit-max-requests: ${CHAT_APP_REDEEM_RATE_LIMIT_MAX_REQUESTS:10}
+
+    # 兑换码与积分映射。
+    # key 建议统一写大写；VIP999 默认表示无限积分。
+    redeem-codes:
+      VIP111: 10
+      VIP222: 20
+      VIP333: 30
+      VIP444: 40
+      VIP555: 50
+      VIP666: 60
+      VIP777: 70
+      VIP888: 80
+      VIP999: ${CHAT_APP_UNLIMITED_POINTS:2147483647}
+
+  chat:
+    # 每次文本聊天请求消耗的积分。
+    cost-per-request: ${CHAT_APP_CHAT_COST_PER_REQUEST:1}
+
+  image:
+    # 每次图片生成 / 编辑 / 兼容转换消耗的积分。
+    cost-per-request: ${CHAT_APP_IMAGE_COST_PER_REQUEST:20}
+
+    # 图片历史列表默认返回数量。
+    history-limit: ${CHAT_APP_IMAGE_HISTORY_LIMIT:20}
+
+  frontend:
+    # 前端在 localStorage 中存 Bearer Token 使用的 key。
+    auth-token-storage-key: ${CHAT_APP_FRONTEND_AUTH_TOKEN_STORAGE_KEY:chat-auth-token-v1}
+
+    # 聊天请求时默认注入的 system prompt。
+    system-prompt: ${CHAT_APP_FRONTEND_SYSTEM_PROMPT:你是一个专业、清晰、直接的中文助手。请优先使用简体中文回答，除非用户明确要求其他语言。}
+
+    # 默认 Skill 模板资源路径。
+    # 支持 classpath: 前缀。
+    default-skill-template-location: ${CHAT_APP_FRONTEND_DEFAULT_SKILL_TEMPLATE_LOCATION:classpath:prompts/default-skill-template.md}
+
+openrouter:
+  # -----------------------------------------------------------------------
+  # 文本聊天模型配置（当前聊天页主能力）
+  # -----------------------------------------------------------------------
+  # 这部分用于 /api/chat，走 OpenRouter 兼容接口。
+  # 如果你只想体验图片功能，这部分理论上可以不动；
+  # 但只要使用聊天页，就必须保证这里配置正确。
+  # -----------------------------------------------------------------------
+  # OpenRouter API Key。
+  # 推荐通过 OPENROUTER_API_KEY 覆盖。
+  # 当前默认值仅适合本地临时调试；开源前建议清空默认值。
+  api-key: ${OPENROUTER_API_KEY:}
+  # OpenRouter 基础地址。
+  # 一般保持默认即可。
+  base-url: https://openrouter.ai/api/v1
+  # 聊天页默认模型。
+  # 当前前端没有做模型切换，所以这里就是实际使用的聊天模型。
+  default-model: ${OPENROUTER_MODEL:x-ai/grok-4.1-fast}
+  # 透传给 OpenRouter 的站点地址，常用于上游统计或来源识别。
+  # 本地开发通常保持默认即可。
+  site-url: ${OPENROUTER_SITE_URL:http://localhost:${SERVER_PORT:8080}}
+  # 透传给 OpenRouter 的应用名。
+  app-name: ${OPENROUTER_APP_NAME:Chat}
+  # 采样温度。
+  # 值越高越发散，值越低越稳定。
+  # 一般建议在 0.2 ~ 1.0 之间调整。
+  temperature: ${OPENROUTER_TEMPERATURE:0.75}
+  # 单次回复最大 tokens。
+  # 如果你发现回复被截断，可以适当提高。
+  max-tokens: ${OPENROUTER_MAX_TOKENS:4096}
+  # 发送给模型的最近上下文消息数量上限。
+  # 值越大，上下文越完整，但消耗也会更高。
+  max-context-messages: ${OPENROUTER_MAX_CONTEXT_MESSAGES:80}
+  # 连接上游的超时时间。
+  connect-timeout: 10s
+  # 读取上游响应的超时时间。
+  # 模型响应慢时，这个值不要配得过低。
+  read-timeout: 90s
+
+image-api:
+  # -----------------------------------------------------------------------
+  # 图片能力配置（文生图 / 图片编辑 / 兼容转换）
+  # -----------------------------------------------------------------------
+  # 这部分是图片工具页专用，和上面的 openrouter 聊天配置完全分离。
+  # 也就是说：
+  # - 文本聊天用 OPENROUTER_*
+  # - 图片能力用 IMAGE_API_*
+  #
+  # 当前代码默认按 OpenAI Compatible 风格拼接地址：
+  #   {base-url}/images/generations
+  #   {base-url}/images/edits
+  #   {base-url}/chat/completions
+  #
+  # 如果你使用 right.codes 中转，推荐：
+  # IMAGE_API_BASE_URL=https://right.codes/gpt/v1
+  # -----------------------------------------------------------------------
+  # 图片接口专用 API Key。
+  # 推荐通过 IMAGE_API_KEY 覆盖。
+  # 当前默认值为空：未配置时，图片工具页会提示不可用。
+  api-key: ${IMAGE_API_KEY:}
+  # 图片接口基础地址。
+  # 注意这里要配到 /v1 这一层，而不是只配域名。
+  # 例如：
+  # https://right.codes/gpt/v1
+  base-url: ${IMAGE_API_BASE_URL:https://right.codes/gpt/v1}
+  # 图片工具默认模型。
+  # 文生图、图片编辑和兼容转换都会优先使用这个默认值。
+  default-model: ${IMAGE_API_MODEL:gpt-image-2}
+  # 连接图片上游服务的超时时间。
+  connect-timeout: 10s
+  # 读取图片上游响应的超时时间。
+  # 图片生成通常比文本慢，所以默认给得更长。
+  read-timeout: 300s
+  # 单个上传图片的大小上限。
+  # 用于图片编辑、兼容转换中的输入图校验。
+  max-upload-size: ${IMAGE_API_MAX_UPLOAD_SIZE:10MB}
+  # 允许上传/接收的图片 MIME 类型白名单。
+  # 当前后端会校验 multipart 文件类型，以及 data:image/... 的 MIME 类型。
+  allowed-mime-types:
+    - image/png
+    - image/jpeg
+    - image/webp
+  # 图片接口限流窗口。
+  # 例如 1m 表示“1 分钟一个窗口”。
+  rate-limit-window: ${IMAGE_API_RATE_LIMIT_WINDOW:1m}
+  # 每个用户在一个限流窗口内最多允许多少次图片请求。
+  # 超过会返回 429。
+  rate-limit-max-requests: ${IMAGE_API_RATE_LIMIT_MAX_REQUESTS:12}

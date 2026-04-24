@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<section id="authScreen" class="auth-screen">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <img class="auth-brand-mark" src="favicon.svg" alt="Chat logo">
+            <div class="auth-brand-copy">
+                <p class="auth-brand-name">Chat</p>
+                <p class="auth-brand-subtitle">登录后开始对话</p>
+            </div>
+        </div>
+
+        <div class="auth-tabs">
+            <button id="showLoginButton" class="auth-tab active" type="button">登录</button>
+            <button id="showRegisterButton" class="auth-tab" type="button">注册</button>
+        </div>
+
+        <p id="authStatus" class="auth-status">请输入账号和密码。</p>
+
+        <form id="loginForm" class="auth-form">
+            <label class="auth-field">
+                <span>账号</span>
+                <input id="loginAccountInput" type="text" autocomplete="username" maxlength="64" placeholder="输入账号名">
+                <span id="loginAccountError" class="auth-field-error"></span>
+            </label>
+            <label class="auth-field">
+                <span>密码</span>
+                <input id="loginPasswordInput" type="password" autocomplete="current-password" maxlength="128" placeholder="输入密码">
+                <span id="loginPasswordError" class="auth-field-error"></span>
+            </label>
+            <button class="auth-submit" type="submit">登录</button>
+        </form>
+
+        <form id="registerForm" class="auth-form" hidden>
+            <label class="auth-field">
+                <span>账号</span>
+                <input id="registerAccountInput" type="text" autocomplete="username" maxlength="64" placeholder="自定义账号名">
+                <span id="registerAccountError" class="auth-field-error"></span>
+            </label>
+            <label class="auth-field">
+                <span>密码</span>
+                <input id="registerPasswordInput" type="password" autocomplete="new-password" maxlength="128" placeholder="至少 6 位密码">
+                <span id="registerPasswordError" class="auth-field-error"></span>
+            </label>
+            <button class="auth-submit" type="submit">注册并登录</button>
+        </form>
+    </div>
+</section>
+
+<div id="appShell" class="shell" hidden>
+    <div class="workspace-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <img class="brand-mark" src="favicon.svg" alt="Chat logo">
+                <div class="brand-copy">
+                    <p class="brand-name">Chat</p>
+                </div>
+            </div>
+
+            <section class="account-panel">
+                <div class="account-copy">
+                    <p id="accountNameText" class="account-name">未登录</p>
+                    <p id="accountPointsText" class="account-points">积分 0</p>
+                </div>
+                <div class="account-actions">
+                    <button id="redeemCodeButton" class="account-redeem" type="button">兑换码</button>
+                    <button id="logoutButton" class="account-logout" type="button">退出</button>
+                </div>
+            </section>
+
+            <section class="view-switcher">
+                <button id="chatViewButton" class="view-switch-button active" type="button">聊天</button>
+                <button id="skillsViewButton" class="view-switch-button" type="button">自定义 Skills</button>
+            </section>
+
+            <a class="sidebar-link-button" href="image-tools.html">图片工具</a>
+            <button id="newConversationButton" class="sidebar-action" type="button">+ 新建聊天</button>
+
+            <section class="history-section">
+                <div class="section-head">
+                    <h2>历史记录</h2>
+                    <span id="conversationCount" class="section-count">1</span>
+                </div>
+                <div id="conversationList" class="conversation-list"></div>
+            </section>
+        </aside>
+
+        <main class="main-area">
+            <section id="chatView" class="chat-panel">
+                <section id="messageViewport" class="message-viewport">
+                    <div id="emptyState" class="empty-state">
+                        <p class="empty-kicker">Chat</p>
+                        <h2>今天想聊点什么？</h2>
+                    </div>
+                    <div id="messageList" class="message-list"></div>
+                </section>
+
+                <footer class="composer">
+                    <div class="composer-meta">
+                        <span id="statusText">Ready</span>
+                        <span id="usageText">尚未发送消息</span>
+                    </div>
+                    <form id="chatForm" class="composer-form">
+                        <label class="composer-shell" for="messageInput">
+                            <div class="skill-strip">
+                                <div class="skill-strip-head">
+                                    <span class="skill-strip-label">Skills</span>
+                                    <select id="skillSelect" class="skill-select" aria-label="添加 skill">
+                                        <option value="">无 skill</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <textarea id="messageInput" rows="2" placeholder="发送消息"></textarea>
+                            <div class="composer-toolbar">
+                                <p class="composer-hint">Enter 发送，Shift + Enter 换行</p>
+                                <button id="sendButton" class="send-button" type="submit">发送</button>
+                            </div>
+                        </label>
+                    </form>
+                </footer>
+            </section>
+
+            <section id="skillsManagerView" class="skills-manager" hidden>
+                <div class="skills-manager-shell">
+                    <header class="skills-manager-head">
+                        <div>
+                            <p class="skills-manager-kicker">Skills</p>
+                            <h2>自定义技能</h2>
+                            <p>在这里新增、查看和删除当前账号自己的 skills。</p>
+                        </div>
+                    </header>
+
+                    <section class="skills-manager-grid">
+                        <form id="skillEditorForm" class="skill-editor-card">
+                            <div class="skill-editor-head">
+                                <div>
+                                    <p id="skillEditorModeText" class="skills-manager-kicker">Create</p>
+                                    <h3 id="skillEditorTitle">新增 Skill</h3>
+                                </div>
+                                <button id="cancelSkillEditButton" class="skill-editor-cancel" type="button" hidden>取消编辑</button>
+                            </div>
+                            <label class="auth-field">
+                                <span>名称</span>
+                                <input id="skillNameInput" type="text" maxlength="128" placeholder="例如：代码审查助手">
+                            </label>
+                            <label class="auth-field">
+                                <span>简介</span>
+                                <input id="skillDescriptionInput" type="text" maxlength="255" placeholder="用于下拉框展示，可选">
+                            </label>
+                            <label class="auth-field">
+                                <span>提示词内容</span>
+                                <textarea id="skillPromptInput" class="skill-prompt-input" rows="10" placeholder="输入完整技能提示词"></textarea>
+                            </label>
+                            <button id="skillSubmitButton" class="auth-submit" type="submit">新增 Skill</button>
+                        </form>
+
+                        <section class="skill-library-card">
+                            <h3>当前账号的 Skills</h3>
+                            <div id="skillsManagerList" class="skills-manager-list"></div>
+                        </section>
+                    </section>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+
+<section id="redeemModal" class="redeem-modal" hidden>
+    <div class="redeem-backdrop"></div>
+    <div class="redeem-card">
+        <div class="redeem-head">
+            <div>
+                <p class="skills-manager-kicker">Redeem</p>
+                <h3>兑换码</h3>
+            </div>
+            <button id="closeRedeemModalButton" class="skill-editor-cancel" type="button">关闭</button>
+        </div>
+        <p class="redeem-description">输入兑换码后即可为当前账号增加积分。</p>
+        <label class="auth-field">
+            <span>兑换码</span>
+            <input id="redeemCodeInput" type="text" maxlength="32" placeholder=" ">
+        </label>
+        <p id="redeemStatusText" class="redeem-status"></p>
+        <button id="submitRedeemButton" class="auth-submit" type="button">立即兑换</button>
+    </div>
+</section>
+
+<script src="js/app.js"></script>
+</body>
+</html>
