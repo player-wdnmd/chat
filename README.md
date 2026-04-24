@@ -1,77 +1,171 @@
 # Chat
 
-一个基于 Spring Boot 3 + 原生静态前端的聊天应用，当前已经接入：
+一个基于 `Spring Boot 3.3 + MyBatis-Plus + 原生静态前端` 的聊天与图片工具应用。
 
-- MySQL 账号体系
-- 注册 / 登录
+当前项目包含两条核心能力：
+
+- 文本聊天：基于 OpenRouter 的对话能力，支持账号体系、会话状态、技能系统、积分扣减
+- 图片工具：支持文字生图、图像处理（统一入口，底层分流到局部编辑或兼容转换）、图片历史持久化
+
+项目整体是一个单体 Web 应用：
+
+- 后端负责 API、鉴权、数据库读写、上游模型调用
+- 前端直接由 Spring Boot 托管静态资源
+
+---
+
+## 功能概览
+
+### 账号与认证
+
+- 用户名 + 密码注册
+- 用户名 + 密码登录
 - Bearer Token 鉴权
-- 按用户隔离的聊天状态
-- 数据库实时读取型 skills
-- 积分扣减
+- 退出登录会使服务端会话失效
+- 会话支持空闲过期
+- 登录 / 注册 / 兑换接口带服务端限流
 
-## 当前功能
+### 聊天能力
 
-- Java 21 + Spring Boot 3.3
-- OpenRouter 聊天调用
-- MySQL 持久化用户、登录会话、聊天状态
-- 注册只需要账号名和密码
-- 登录后才能访问后端 API
-- 每次成功发起一轮聊天请求消耗 1 积分
-- 积分为 0 时前后端都会阻止发送
-- skill 从数据库动态加载
-- 每个会话仅支持选择 1 个 skill
-- 聊天记录按用户隔离保存，不再共用一个本地状态文件
+- 文本聊天调用 OpenRouter
+- 聊天历史按用户隔离
+- 会话状态持久化到 MySQL
+- 每个会话最多启用 1 个技能
+- 技能从数据库读取
+- 每次成功聊天消耗积分
+- 模型失败时自动退款
 
-## 数据库说明
+### 图片能力
 
-### 建表 SQL
+- 文字生图
+- 图像处理
+  - 统一前端入口
+  - 不勾选“仅修改局部区域”时，走图像转换
+  - 勾选“仅修改局部区域”或上传遮罩图时，走局部编辑
+- 图片结果按用户持久化到 MySQL
+- 最近生成支持恢复、删除单条、清空全部
+- 图片请求支持超时提示
+- 图片上传有大小限制、MIME 白名单和频率限制
 
-项目已经提供手动执行的建表 SQL：
+### 安全加固
 
-`src/main/resources/db/schema-mysql.sql`
+- API 响应禁缓存
+- 基础安全响应头
+- Token 只在数据库中保存 SHA-256 哈希
+- 输入校验覆盖用户名、兑换码、skillName 等关键标识字段
+- 避免在日志中输出敏感长文本和部分明文内容
 
-注意：
+---
 
-- 项目启动时不会自动执行这份 SQL
-- 你需要先在 MySQL 中手动创建数据库并执行这份 SQL
-- 数据访问运行时使用的是 MyBatis-Plus / MyBatis-Plus-Join，不在 service 里手写 SQL
+## 技术栈
 
-### 默认管理员
+- Java 21
+- Spring Boot 3.3.x
+- MyBatis-Plus
+- MyBatis-Plus-Join
+- MySQL 8+
+- Hutool HTTP
+- Lombok
+- 原生 HTML / CSS / JavaScript
 
-建表 SQL 中已经包含默认管理员账号：
+---
 
-- 用户名：`admin`
-- 密码：`admin123`
-- 积分：`2147483647`（作为“无限积分”的约定值使用）
+## 项目结构
 
-## 启动前准备
+```text
+.
+├── .mvn/
+├── mvnw
+├── mvnw.cmd
+├── pom.xml
+├── README.md
+└── src/
+    └── main/
+        ├── java/com/example/chat/
+        │   ├── config/        # 配置类、过滤器、安全响应头
+        │   ├── controller/    # 认证、聊天、状态、技能、图片、公共配置接口
+        │   ├── entity/        # MyBatis-Plus 实体
+        │   ├── mapper/        # Mapper 接口
+        │   ├── model/         # 请求/响应模型
+        │   └── service/       # 业务服务、积分、图片代理、历史、限流
+        └── resources/
+            ├── application.yml
+            ├── db/
+            │   └── schema-mysql.sql
+            ├── prompts/
+            │   └── default-skill-template.md
+            └── static/
+                ├── index.html
+                ├── image-tools.html
+                ├── css/
+                └── js/
+```
+
+---
+
+## 数据库初始化
 
 ### 1. 创建数据库
 
 例如：
 
 ```sql
-CREATE DATABASE chat DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE chat
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
 ```
 
-### 2. 手动执行建表 SQL
+### 2. 执行建表 SQL
 
-执行：
+项目不会在启动时自动创建整套业务表。
 
-`src/main/resources/db/schema-mysql.sql`
+请手动执行：
 
-### 3. 设置环境变量
+```text
+src/main/resources/db/schema-mysql.sql
+```
 
-至少需要准备：
+这份 SQL 会创建以下表：
+
+- `chat_user`
+- `chat_user_session`
+- `chat_user_state`
+- `chat_user_redeem_code_usage`
+- `chat_user_skill`
+- `chat_user_image_history`
+
+### 3. 默认管理员
+
+`schema-mysql.sql` 里已经包含默认管理员：
+
+- 用户名：`admin`
+- 密码：`admin123`
+- 积分：`2147483647`（约定为“无限积分”）
+
+---
+
+## 快速启动
+
+### 1. 准备环境变量
+
+最少需要准备数据库和聊天模型配置：
 
 ```bash
 export MYSQL_URL="jdbc:mysql://localhost:3306/chat?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
 export MYSQL_USERNAME="root"
-export MYSQL_PASSWORD="你的mysql密码"
-export OPENROUTER_API_KEY="你的openrouter key"
+export MYSQL_PASSWORD="你的数据库密码"
+
+export OPENROUTER_API_KEY="你的 OpenRouter Key"
 ```
 
-## 启动
+如果你还要使用图片工具，再补充：
+
+```bash
+export IMAGE_API_KEY="你的图片中转 Key"
+export IMAGE_API_BASE_URL="https://right.codes/gpt/v1"
+```
+
+### 2. 启动项目
 
 ```bash
 ./mvnw spring-boot:run
@@ -84,123 +178,180 @@ export SERVER_PORT=8081
 ./mvnw spring-boot:run
 ```
 
-访问：
+### 3. 访问地址
 
-- [http://localhost:8080](http://localhost:8080)
-- 或你指定的 `SERVER_PORT`
+- 聊天页：`http://localhost:8080/`
+- 图片工具页：`http://localhost:8080/image-tools.html`
 
-## 环境变量
+---
+
+## 配置说明
+
+配置文件位于：
+
+```text
+src/main/resources/application.yml
+```
+
+推荐优先通过环境变量覆盖，不要把真实密钥直接写进 yml。
 
 ### 数据库
 
 - `MYSQL_URL`
-  MySQL JDBC URL
 - `MYSQL_USERNAME`
-  MySQL 用户名
 - `MYSQL_PASSWORD`
-  MySQL 密码
 
-### OpenRouter
+### 服务端
+
+- `SERVER_PORT`
+
+### 聊天能力（OpenRouter）
 
 - `OPENROUTER_API_KEY`
-  必填，未提供时后端会拒绝调用模型
 - `OPENROUTER_MODEL`
-  可选，默认 `x-ai/grok-4.1-fast`
 - `OPENROUTER_SITE_URL`
-  可选，透传到 OpenRouter 的 `HTTP-Referer`
 - `OPENROUTER_APP_NAME`
-  可选，透传到 OpenRouter 的标题信息
 - `OPENROUTER_TEMPERATURE`
-  可选，采样温度
 - `OPENROUTER_MAX_TOKENS`
-  可选，单次回复最大 tokens
 - `OPENROUTER_MAX_CONTEXT_MESSAGES`
-  可选，请求时保留的最近上下文消息数
 
-### 其他
+### 图片能力
 
-- `CHAT_SKILLS_DIRECTORY`
-  skill 扫描目录，默认 `src/main/resources/skills`
-- `SERVER_PORT`
-  服务端口，默认 `8080`
+- `IMAGE_API_KEY`
+- `IMAGE_API_BASE_URL`
+- `IMAGE_API_MODEL`
+- `IMAGE_API_MAX_UPLOAD_SIZE`
+- `IMAGE_API_RATE_LIMIT_WINDOW`
+- `IMAGE_API_RATE_LIMIT_MAX_REQUESTS`
 
-## 项目结构
+### 项目级业务配置
+
+这些配置在 `chat-app` 下，常用于调整业务规则：
+
+- `CHAT_APP_UNLIMITED_POINTS`
+- `CHAT_APP_UNLIMITED_POINTS_TOLERANCE`
+- `CHAT_APP_REGISTER_DEFAULT_POINTS`
+- `CHAT_APP_SESSION_MAX_IDLE`
+- `CHAT_APP_LOGIN_RATE_LIMIT_WINDOW`
+- `CHAT_APP_LOGIN_RATE_LIMIT_MAX_REQUESTS`
+- `CHAT_APP_REGISTER_RATE_LIMIT_WINDOW`
+- `CHAT_APP_REGISTER_RATE_LIMIT_MAX_REQUESTS`
+- `CHAT_APP_REDEEM_RATE_LIMIT_WINDOW`
+- `CHAT_APP_REDEEM_RATE_LIMIT_MAX_REQUESTS`
+- `CHAT_APP_CHAT_COST_PER_REQUEST`
+- `CHAT_APP_IMAGE_COST_PER_REQUEST`
+- `CHAT_APP_IMAGE_HISTORY_LIMIT`
+- `CHAT_APP_FRONTEND_AUTH_TOKEN_STORAGE_KEY`
+- `CHAT_APP_FRONTEND_SYSTEM_PROMPT`
+- `CHAT_APP_FRONTEND_DEFAULT_SKILL_TEMPLATE_LOCATION`
+
+---
+
+## 业务规则
+
+### 积分
+
+- 注册默认积分由 `chat-app.auth.register-default-points` 控制，默认 `0`
+- 每次聊天成功消耗 `1` 积分
+- 每次图片操作成功消耗 `20` 积分
+- 如果聊天或图片调用失败，已经扣掉的积分会自动退回
+- `2147483647` 被视为“无限积分”
+
+### 兑换码
+
+默认兑换规则：
+
+- `VIP111` -> `10`
+- `VIP222` -> `20`
+- `VIP333` -> `30`
+- `VIP444` -> `40`
+- `VIP555` -> `50`
+- `VIP666` -> `60`
+- `VIP777` -> `70`
+- `VIP888` -> `80`
+- `VIP999` -> 无限积分
+
+每个用户对同一个兑换码只能使用一次。
+
+### 技能
+
+- 技能存储在数据库表 `chat_user_skill`
+- 每个技能属于一个用户
+- 一个会话最多只启用一个技能
+- 发送聊天请求时，技能会被注入为额外的 system prompt
+
+### 图片处理
+
+前端只有一个 `图像处理` 入口，但后端会自动分流：
+
+- 如果用户只上传输入图片 + 指令，走兼容转换
+- 如果用户勾选“仅修改局部区域”或上传遮罩图，走图片编辑
+
+---
+
+## 前端页面说明
+
+### 聊天页
+
+地址：
 
 ```text
-src/main/java/com/example/chat/
-├── config/         # 数据源、HTTP 客户端、鉴权过滤器、请求追踪
-├── controller/     # 认证、聊天、状态、skills 接口
-├── entity/         # MyBatis-Plus 实体
-├── mapper/         # MyBatis-Plus / MPJ Mapper
-├── model/          # 请求/响应/运行时模型
-└── service/        # 认证、积分、状态、skill、OpenRouter 调用
-
-src/main/resources/
-├── application.yml
-├── db/
-│   └── schema-mysql.sql
-├── skills/
-└── static/
+/
 ```
 
-## 认证与鉴权
+主要功能：
 
-### 认证方式
+- 登录 / 注册
+- 历史会话列表
+- 技能管理
+- 兑换码
+- 文本聊天
 
-当前采用：
+### 图片工具页
 
-- 账号名 + 密码注册
-- 账号名 + 密码登录
-- 登录成功后返回 Bearer Token
-- 前端把 Token 存在浏览器本地
-- 后续所有受保护接口都通过 `Authorization: Bearer <token>` 调用
-
-### 受保护接口
-
-除了下面两个接口，其余 `/api/*` 都需要先登录：
-
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-
-## 积分规则
-
-- 注册新账号默认积分为 `0`
-- 每次发送消息前，后端先尝试原子扣减 `1` 积分
-- 如果积分不足，直接拒绝发送
-- 如果积分扣减成功但模型调用失败，会自动把这 `1` 分退回
-- 当前不提供充值/获取积分渠道
-- 你可以直接在 MySQL 里手动修改 `chat_user.points`
-
-## Skills
-
-### 目录约定
-
-每个 skill 占一个目录，例如：
+地址：
 
 ```text
-src/main/resources/skills/
-└── zhangxuefeng/
-    ├── SKILL.md
-    └── meta.json
+/image-tools.html
 ```
 
-### 必需文件
+当前包含两个入口：
 
-- `SKILL.md`
-  真正注入给模型的 skill 正文
+#### 1. 文字生图
 
-### 可选文件
+- 只输入文字提示词
+- 直接生成一张新图
 
-- `meta.json`
-  用于给前端提供更友好的 `name / slug / description`
+#### 2. 图像处理
 
-### 当前规则
+- 上传一张输入图片
+- 输入处理指令
+- 可选勾选 `仅修改局部区域`
+- 可选上传遮罩图
 
-- 每个会话只能启用 1 个 skill
-- skill 由后端扫描目录并返回给前端下拉框
-- 发送请求时，后端会把 skill 包装成额外的 system prompt 注入模型上下文
+结果能力：
+
+- 预览图片
+- 下载图片
+- 点击图片放大查看
+- 最近生成按用户持久化
+
+---
 
 ## API 概览
+
+以下为主要接口。
+
+### 公共配置
+
+#### `GET /api/config/public`
+
+返回前端运行时需要的公共配置，例如：
+
+- token 存储 key
+- 默认 system prompt
+- 默认 Skill 模板
+- 无限积分哨兵值
 
 ### 认证
 
@@ -228,7 +379,21 @@ src/main/resources/skills/
 
 #### `GET /api/auth/me`
 
-返回当前账号名和积分。
+返回当前登录用户信息。
+
+#### `POST /api/auth/redeem`
+
+请求体：
+
+```json
+{
+  "redeemCode": "VIP222"
+}
+```
+
+#### `DELETE /api/auth/session`
+
+服务端注销当前 Bearer Token 会话。
 
 ### 聊天
 
@@ -240,82 +405,234 @@ src/main/resources/skills/
 Authorization: Bearer <token>
 ```
 
-请求体：
+请求体示例：
 
 ```json
 {
   "conversationId": "conversation-id",
-  "skillIds": ["pig-zhangxuefeng"],
+  "skillIds": ["1"],
   "messages": [
-    {"role": "system", "content": "你是一个专业、清晰、直接的中文助手。"},
-    {"role": "user", "content": "老师你好"}
+    {
+      "role": "system",
+      "content": "你是一个专业、清晰、直接的中文助手。"
+    },
+    {
+      "role": "user",
+      "content": "老师你好"
+    }
   ]
 }
 ```
 
-响应里会额外返回：
+返回内容包含：
 
+- `model`
+- `content`
+- `requestId`
+- `latencyMs`
 - `remainingPoints`
 
-用于前端立即更新剩余积分。
-
-### 状态
+### 聊天状态
 
 #### `GET /api/state`
 
-读取当前登录用户自己的聊天状态。
+读取当前用户完整聊天状态。
 
 #### `PUT /api/state`
 
-覆盖保存当前登录用户自己的聊天状态。
+保存当前用户完整聊天状态。
 
 ### 技能
 
 #### `GET /api/skills`
 
-返回当前可选 skill 列表。
+读取当前用户技能列表。
 
-## 前端行为说明
+#### `POST /api/skills`
 
-- 未登录时先显示登录/注册卡片
-- 登录后才加载聊天状态和 skills
-- 左侧会显示当前账号名与积分
-- 积分为 0 时发送按钮禁用，输入框也会同步禁用
-- 如果后端返回“积分不足”，前端会立刻更新成不可发送状态
+创建技能。
 
-## 运行时实现说明
+#### `GET /api/skills/{skillId}`
 
-### 数据访问
+读取技能详情。
 
-运行时数据库访问使用：
+#### `PUT /api/skills/{skillId}`
 
-- MyBatis-Plus
-- MyBatis-Plus-Join
+更新技能。
 
-主要用途：
+#### `DELETE /api/skills/{skillId}`
 
-- 用户 CRUD
-- token -> user 的 join 鉴权解析
-- 用户聊天状态读写
-- 积分扣减 / 返还
+删除技能。
 
-### 密码
+### 图片工具
 
-密码使用 `BCrypt` 哈希存储，不在数据库中保存明文密码。
+#### `GET /api/images/meta`
 
-### Bearer Token
+返回图片工具元信息，例如：
 
-- 数据库中只保存 token 的 `SHA-256` 哈希
-- 不直接保存明文 token
-- 请求进入时通过 token 哈希反查当前用户
+- 是否已配置图片服务
+- 单次消耗积分
+- 上传大小限制
+- MIME 白名单
+- 限流规则
 
-## 验证
+#### `GET /api/images/history`
 
-常用检查命令：
+读取当前用户最近图片历史列表。
 
-```bash
-node --check src/main/resources/static/js/app.js
-./mvnw test
+#### `GET /api/images/history/{historyId}`
+
+读取某条图片历史详情。
+
+#### `DELETE /api/images/history/{historyId}`
+
+删除某条图片历史。
+
+#### `DELETE /api/images/history`
+
+清空当前用户全部图片历史。
+
+#### `POST /api/images/generations`
+
+文字生图。
+
+请求体示例：
+
+```json
+{
+  "model": "gpt-image-2",
+  "prompt": "生成一张重庆夏天傍晚的照片"
+}
 ```
 
-在我这次改动里，这两个命令都已经通过。
+#### `POST /api/images/edits`
+
+图片编辑，`multipart/form-data`。
+
+字段：
+
+- `model` 可选
+- `prompt` 必填
+- `image` 必填
+- `mask` 可选
+
+#### `POST /api/images/chat/completions`
+
+图像转换，兼容风格接口。
+
+请求体示例：
+
+```json
+{
+  "model": "gpt-image-2",
+  "role": "user",
+  "content": [
+    {
+      "type": "text",
+      "text": "改成中国水墨画风"
+    },
+    {
+      "type": "image_url",
+      "image_url": {
+        "url": "data:image/png;base64,..."
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 安全说明
+
+当前项目已经做了这些基础安全处理：
+
+- Bearer Token 只存哈希，不存明文
+- 会话支持空闲过期
+- 支持服务端注销
+- 注册 / 登录 / 兑换 / 图片请求限流
+- 安全响应头
+- API 响应禁缓存
+- multipart 上传大小限制
+- 图片 MIME 类型校验
+- 关键输入字段有白名单校验
+
+仍然建议你在生产环境继续加强：
+
+- 使用 HTTPS
+- 使用权限最小化的数据库账号
+- 配置真实的反向代理和 WAF
+- 对密钥统一走密钥管理平台，不直接落盘
+- 视需要把登录态从 localStorage Bearer Token 改成 HttpOnly Cookie
+
+---
+
+## 常见问题
+
+### 1. 为什么项目启动后没有自动建表？
+
+这是设计如此。当前项目要求手动执行：
+
+```text
+src/main/resources/db/schema-mysql.sql
+```
+
+这样更适合开源场景和可控部署。
+
+### 2. 图片上传报 1MB 超限怎么办？
+
+需要同时确认两层限制：
+
+- `spring.servlet.multipart.max-file-size`
+- `image-api.max-upload-size`
+
+当前默认都走：
+
+```text
+IMAGE_API_MAX_UPLOAD_SIZE=10MB
+```
+
+修改后需要重启服务。
+
+### 3. 图片请求为什么会超时？
+
+图片生成可能明显慢于文本请求。
+
+当前默认图片读超时：
+
+```text
+image-api.read-timeout: 300s
+```
+
+如果中转站本身很慢，即使本地超时调大，也可能仍然失败。
+
+### 4. 为什么图片历史恢复后看不到原始上传文件？
+
+浏览器安全模型不允许把历史文件重新塞回 `<input type="file">`。  
+项目当前恢复的是：
+
+- 提示词
+- 模型
+- 结果图
+- 结果摘要
+- 原始响应 JSON
+
+如果要再次处理，需要重新选择本地文件。
+
+---
+
+## 开发建议
+
+如果你准备继续扩展这个项目，比较值得优先做的方向：
+
+- 把登录态改成 HttpOnly Cookie
+- 增加集成测试
+- 增加数据库迁移工具（Flyway / Liquibase）
+- 给图片工具加任务队列或异步轮询
+- 补更清晰的监控和告警指标
+
+---
+
+## License
+
+当前仓库已包含 `LICENSE` 文件，请以仓库根目录中的许可证声明为准。
