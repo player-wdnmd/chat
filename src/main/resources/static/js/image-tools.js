@@ -71,7 +71,10 @@ const state = {
     restoreToken: 0,
     currentHistoryId: null,
     loadingStartedAt: 0,
-    loadingTimerId: null
+    loadingTimerId: null,
+    swipedHistoryId: null,
+    activeSwipe: null,
+    suppressHistoryClickId: null
 };
 
 boot();
@@ -139,6 +142,7 @@ function bindEvents() {
     elements.closePreviewButton.addEventListener("click", closeImagePreview);
     elements.imagePreviewModal.addEventListener("click", handlePreviewOverlayClick);
     elements.historyList.addEventListener("click", handleHistoryClick);
+    elements.historyList.addEventListener("pointerdown", handleHistoryPointerDown);
     elements.clearHistoryButton.addEventListener("click", handleClearHistory);
     document.addEventListener("keydown", handleDocumentKeydown);
 }
@@ -558,7 +562,7 @@ function renderHistory() {
     }
 
     elements.historyList.innerHTML = state.history.map((entry) => `
-        <div class="image-history-item">
+        <div class="image-history-item ${String(state.swipedHistoryId) === String(entry.id) ? "swiped" : ""}" data-history-row-id="${entry.id}">
             <button class="image-history-main" type="button" data-history-id="${entry.id}">
                 <img class="image-history-thumb" src="${escapeAttribute(entry.imageUrl)}" alt="${escapeAttribute(entry.mode)}">
                 <div class="image-history-body">
@@ -581,9 +585,21 @@ function handleHistoryClick(event) {
 
     const button = event.target.closest("[data-history-id]");
     if (!button) {
+        state.swipedHistoryId = null;
+        render();
         return;
     }
-    restoreHistoryEntry(button.getAttribute("data-history-id"));
+    const historyId = button.getAttribute("data-history-id");
+    if (state.suppressHistoryClickId && String(state.suppressHistoryClickId) === String(historyId)) {
+        state.suppressHistoryClickId = null;
+        return;
+    }
+    if (String(state.swipedHistoryId) === String(historyId)) {
+        state.swipedHistoryId = null;
+        render();
+        return;
+    }
+    restoreHistoryEntry(historyId);
 }
 
 async function restoreHistoryEntry(entryId) {
@@ -783,6 +799,81 @@ function resetWorkspaceForView(view) {
 
     elements.processForm.reset();
     elements.maskField.hidden = true;
+}
+
+function handleHistoryPointerDown(event) {
+    const button = event.target.closest("[data-history-id]");
+    if (!button) {
+        return;
+    }
+
+    const historyId = button.getAttribute("data-history-id");
+    const row = button.closest("[data-history-row-id]");
+    if (!row) {
+        return;
+    }
+
+    state.activeSwipe = {
+        historyId,
+        row,
+        startX: event.clientX,
+        deltaX: 0
+    };
+
+    if (state.swipedHistoryId && String(state.swipedHistoryId) !== String(historyId)) {
+        state.swipedHistoryId = null;
+        render();
+    }
+
+    row.classList.add("dragging");
+    document.addEventListener("pointermove", handleHistoryPointerMove);
+    document.addEventListener("pointerup", handleHistoryPointerUp);
+    document.addEventListener("pointercancel", handleHistoryPointerUp);
+}
+
+function handleHistoryPointerMove(event) {
+    if (!state.activeSwipe) {
+        return;
+    }
+
+    const deltaX = Math.min(0, event.clientX - state.activeSwipe.startX);
+    state.activeSwipe.deltaX = deltaX;
+    const translateX = Math.max(deltaX, -72);
+    const main = state.activeSwipe.row.querySelector(".image-history-main");
+    if (main) {
+        main.style.transform = `translateX(${translateX}px)`;
+    }
+}
+
+function handleHistoryPointerUp() {
+    if (!state.activeSwipe) {
+        cleanupHistorySwipeListeners();
+        return;
+    }
+
+    const {historyId, row, deltaX} = state.activeSwipe;
+    const main = row.querySelector(".image-history-main");
+    if (main) {
+        main.style.transform = "";
+    }
+    row.classList.remove("dragging");
+
+    if (deltaX <= -36) {
+        state.swipedHistoryId = historyId;
+        state.suppressHistoryClickId = historyId;
+    } else {
+        state.swipedHistoryId = null;
+    }
+
+    state.activeSwipe = null;
+    cleanupHistorySwipeListeners();
+    render();
+}
+
+function cleanupHistorySwipeListeners() {
+    document.removeEventListener("pointermove", handleHistoryPointerMove);
+    document.removeEventListener("pointerup", handleHistoryPointerUp);
+    document.removeEventListener("pointercancel", handleHistoryPointerUp);
 }
 
 function startLoadingTimer() {
