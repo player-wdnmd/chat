@@ -210,18 +210,18 @@ image-api:
   #   {base-url}/images/edits
   #   {base-url}/chat/completions
   #
-  # 如果你使用 right.codes 中转，推荐：
-  # IMAGE_API_BASE_URL=https://right.codes/gpt/v1
+  # 如果你使用 right.codes draw 接口，推荐：
+  # IMAGE_API_BASE_URL=https://www.right.codes/draw
   # -----------------------------------------------------------------------
   # 图片接口专用 API Key。
   # 推荐通过 IMAGE_API_KEY 覆盖。
   # 当前默认值为空：未配置时，图片工具页会提示不可用。
   api-key: ${IMAGE_API_KEY:}
   # 图片接口基础地址。
-  # 注意这里要配到 /v1 这一层，而不是只配域名。
+  # 这里配置到 draw 根路径，代码内部会自动拼接 /v1/...。
   # 例如：
-  # https://right.codes/gpt/v1
-  base-url: ${IMAGE_API_BASE_URL:https://right.codes/gpt/v1}
+  # https://www.right.codes/draw
+  base-url: ${IMAGE_API_BASE_URL:https://www.right.codes/draw}
   # 图片工具默认模型。
   # 文生图、图片编辑和兼容转换都会优先使用这个默认值。
   default-model: ${IMAGE_API_MODEL:gpt-image-2}

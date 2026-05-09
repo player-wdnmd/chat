@@ -30,6 +30,7 @@ import java.util.function.Supplier;
 import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -84,7 +85,8 @@ public class ImageProxyService {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("model", model);
             payload.put("prompt", prompt);
-            return sendJson("/images/generations", payload);
+            payload.put("response_format", "url");
+            return sendJson("/v1/images/generations", payload);
         }, "generate", model, prompt);
     }
 
@@ -104,7 +106,7 @@ public class ImageProxyService {
 
         return executeBillable(userId, () -> {
             try {
-                HttpRequest request = createRequest("/images/edits")
+                HttpRequest request = createRequest("/v1/images/edits")
                         .form("model", model)
                         .form("prompt", normalizedPrompt)
                         .form("image", image.getBytes(), resolveFilename(image, "image.png"));
@@ -128,7 +130,7 @@ public class ImageProxyService {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("model", model);
             payload.put("messages", buildMessages(request));
-            return sendJson("/chat/completions", payload);
+            return sendJson("/v1/chat/completions", payload);
         }, "compatible", model, prompt);
     }
 
@@ -248,7 +250,8 @@ public class ImageProxyService {
             String responseBody = response.body();
             if (response.getStatus() < 200 || response.getStatus() >= 300) {
                 log.warn("图片接口返回错误响应：status={}，body={}", response.getStatus(), responseBody);
-                throw new ImageProxyException(parseErrorMessage(responseBody, response.getStatus()));
+                String errorMessage = parseErrorMessage(responseBody, response.getStatus());
+                throw new ImageProxyException(errorMessage, resolveErrorStatus(errorMessage, response.getStatus()));
             }
             return objectMapper.readTree(responseBody);
         } catch (JsonProcessingException exception) {
@@ -260,6 +263,7 @@ public class ImageProxyService {
                         "图片接口在 "
                                 + properties.getReadTimeout().toSeconds()
                                 + " 秒内未返回，当前更像是上游处理过慢或中转站超时。",
+                        HttpStatus.BAD_GATEWAY,
                         exception
                 );
             }
@@ -427,19 +431,47 @@ public class ImageProxyService {
         if (firstDataItem != null && firstDataItem.hasNonNull("b64_json")) {
             return "data:image/png;base64," + firstDataItem.path("b64_json").asText();
         }
+        if (firstDataItem != null && firstDataItem.hasNonNull("url")) {
+            return firstDataItem.path("url").asText();
+        }
 
         String content = response.path("choices").isArray() && !response.path("choices").isEmpty()
                 ? response.path("choices").get(0).path("message").path("content").asText("")
                 : "";
-        if (StringUtils.hasText(content)) {
-            int start = content.indexOf("(data:image/");
-            int end = content.lastIndexOf(')');
-            if (start >= 0 && end > start) {
-                return content.substring(start + 1, end);
-            }
+        String imageUrl = extractImageUrlFromContent(content);
+        if (StringUtils.hasText(imageUrl)) {
+            return imageUrl;
         }
 
         throw new IllegalStateException("图片历史保存失败：响应中没有可提取的图片数据。");
+    }
+
+    private String extractImageUrlFromContent(String content) {
+        if (!StringUtils.hasText(content)) {
+            return "";
+        }
+
+        int markdownStart = content.indexOf("(data:image/");
+        if (markdownStart >= 0) {
+            int markdownEnd = content.lastIndexOf(')');
+            if (markdownEnd > markdownStart) {
+                return content.substring(markdownStart + 1, markdownEnd);
+            }
+        }
+
+        int markdownHttpStart = content.indexOf("(http");
+        if (markdownHttpStart >= 0) {
+            int markdownHttpEnd = content.indexOf(')', markdownHttpStart);
+            if (markdownHttpEnd > markdownHttpStart) {
+                return content.substring(markdownHttpStart + 1, markdownHttpEnd);
+            }
+        }
+
+        String trimmed = content.trim();
+        if (trimmed.startsWith("data:image/") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return trimmed;
+        }
+        return "";
     }
 
     private String buildResultInfo(JsonNode response, String model, int remainingPoints) {
@@ -490,12 +522,39 @@ public class ImageProxyService {
             candidates.add(root.path("detail").asText());
             for (String candidate : candidates) {
                 if (StringUtils.hasText(candidate)) {
+                    if (isPolicyViolationMessage(candidate)) {
+                        return "当前提示词或生成结果被上游安全策略拦截，请调整描述后重试。";
+                    }
                     return candidate;
                 }
             }
         } catch (JsonProcessingException ignored) {
         }
 
+        if (isPolicyViolationMessage(body)) {
+            return "当前提示词或生成结果被上游安全策略拦截，请调整描述后重试。";
+        }
         return "图片接口请求失败，状态码 " + statusCode + "。";
+    }
+
+    private HttpStatus resolveErrorStatus(String message, int upstreamStatusCode) {
+        if (isPolicyViolationMessage(message)) {
+            return HttpStatus.BAD_REQUEST;
+        }
+        if (upstreamStatusCode == 429) {
+            return HttpStatus.TOO_MANY_REQUESTS;
+        }
+        return HttpStatus.BAD_GATEWAY;
+    }
+
+    private boolean isPolicyViolationMessage(String message) {
+        if (!StringUtils.hasText(message)) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains("violated our relevant policies")
+                || normalized.contains("violated")
+                || normalized.contains("policy")
+                || normalized.contains("content_filter");
     }
 }

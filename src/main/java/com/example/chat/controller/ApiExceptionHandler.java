@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -98,10 +99,14 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(ImageProxyException.class)
-    @ResponseStatus(HttpStatus.BAD_GATEWAY)
-    public ApiError handleImageProxy(ImageProxyException exception) {
-        log.error("调用图片接口失败：{}", exception.getMessage(), exception);
-        return new ApiError(exception.getMessage(), Map.of());
+    public ResponseEntity<ApiError> handleImageProxy(ImageProxyException exception) {
+        HttpStatus status = exception.getStatus() == null ? HttpStatus.BAD_GATEWAY : exception.getStatus();
+        if (status.is5xxServerError()) {
+            log.error("调用图片接口失败：{}", exception.getMessage(), exception);
+        } else {
+            log.warn("图片接口返回可预期错误：{}", exception.getMessage());
+        }
+        return ResponseEntity.status(status).body(new ApiError(exception.getMessage(), Map.of()));
     }
 
     @ExceptionHandler(RateLimitExceededException.class)

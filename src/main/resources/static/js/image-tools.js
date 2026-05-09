@@ -7,6 +7,34 @@ const IMAGE_GENERATIONS_API_URL = "/api/images/generations";
 const IMAGE_EDITS_API_URL = "/api/images/edits";
 const IMAGE_CHAT_COMPLETIONS_API_URL = "/api/images/chat/completions";
 
+const IMAGE_MODEL_OPTIONS = [
+    {
+        value: "gpt-image-2-vip",
+        label: "gpt-image-2-vip",
+        description: "OpenAI 官方直连，支持 1K、2K、4K。"
+    },
+    {
+        value: "gpt-image-2",
+        label: "gpt-image-2",
+        description: "OpenAI 特价版，支持 1K。"
+    },
+    {
+        value: "nano-banana",
+        label: "nano-banana",
+        description: "基于 gemini-2.5-flash-image 的封装模型。"
+    },
+    {
+        value: "nano-banana-2",
+        label: "nano-banana-2",
+        description: "第二代模型，支持 1K、2K、4K。"
+    },
+    {
+        value: "nano-banana-pro",
+        label: "nano-banana-pro",
+        description: "第二代 Pro 模型，支持 1K、2K、4K。"
+    }
+];
+
 const clientConfig = {
     authTokenStorageKey: "",
     unlimitedPoints: 0
@@ -24,6 +52,8 @@ const elements = {
     historyList: document.getElementById("historyList"),
     clearHistoryButton: document.getElementById("clearHistoryButton"),
     panelTitleText: document.getElementById("panelTitleText"),
+    modelSelect: document.getElementById("modelSelect"),
+    modelDescriptionText: document.getElementById("modelDescriptionText"),
     generateForm: document.getElementById("generateForm"),
     generatePromptInput: document.getElementById("generatePromptInput"),
     generateSubmitButton: document.getElementById("generateSubmitButton"),
@@ -70,6 +100,8 @@ const state = {
     resultInfo: "",
     resultJson: "",
     previewOpen: false,
+    selectedModel: "gpt-image-2",
+    lastUsedModel: "gpt-image-2",
     history: [],
     restoreToken: 0,
     currentHistoryId: null,
@@ -98,6 +130,7 @@ async function boot() {
     }
 
     bindEvents();
+    initializeModelOptions();
 
     try {
         const [user, imageMeta, history] = await Promise.all([fetchCurrentUser(), fetchImageMeta(), fetchImageHistory()]);
@@ -140,6 +173,7 @@ function bindEvents() {
     elements.showProcessTab.addEventListener("click", () => switchView("process"));
     elements.generateForm.addEventListener("submit", handleGenerateSubmit);
     elements.processForm.addEventListener("submit", handleProcessSubmit);
+    elements.modelSelect.addEventListener("change", handleModelChange);
     elements.processImageInput.addEventListener("change", handleProcessImageChange);
     elements.processSelectedFiles.addEventListener("click", handleProcessSelectedFilesClick);
     elements.localEditToggle.addEventListener("change", handleLocalEditToggleChange);
@@ -275,16 +309,18 @@ function normalizeImageHistoryList(raw) {
 async function handleGenerateSubmit(event) {
     event.preventDefault();
     const prompt = elements.generatePromptInput.value.trim();
+    const model = state.selectedModel;
     if (!prompt) {
         setStatus("请先输入文生图提示词。");
         return;
     }
 
     await runRequest(async () => {
+        state.lastUsedModel = model;
         const response = await apiFetch(IMAGE_GENERATIONS_API_URL, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({prompt})
+            body: JSON.stringify({model, prompt})
         });
         const data = await readResponseData(response);
         if (!response.ok) {
@@ -298,6 +334,7 @@ async function handleGenerateSubmit(event) {
 async function handleProcessSubmit(event) {
     event.preventDefault();
     const prompt = elements.processPromptInput.value.trim();
+    const model = state.selectedModel;
     const imageFiles = state.processSelectedFiles;
     const maskFile = elements.processMaskInput.files[0];
     const useLocalEdit = elements.localEditToggle.checked || Boolean(maskFile);
@@ -316,9 +353,11 @@ async function handleProcessSubmit(event) {
     }
 
     await runRequest(async () => {
+        state.lastUsedModel = model;
         let response;
         if (useLocalEdit) {
             const formData = new FormData();
+            formData.append("model", model);
             formData.append("prompt", prompt);
             formData.append("image", imageFiles[0]);
             if (maskFile) {
@@ -334,6 +373,7 @@ async function handleProcessSubmit(event) {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
+                    model,
                     role: "user",
                     content: [
                         {type: "text", text: prompt},
@@ -399,8 +439,14 @@ function handleProcessSelectedFilesClick(event) {
     if (!Number.isInteger(index) || index < 0 || index >= state.processSelectedFiles.length) {
         return;
     }
+    revokeProcessFilePreview(state.processSelectedFiles[index]);
     state.processSelectedFiles.splice(index, 1);
     render();
+}
+
+function handleModelChange(event) {
+    state.selectedModel = String(event.target.value || "gpt-image-2");
+    renderModelDescription();
 }
 
 async function runRequest(task) {
@@ -431,17 +477,18 @@ async function runRequest(task) {
 
 function applyImageResponse(data, statusText) {
     const firstItem = Array.isArray(data.data) ? data.data[0] : null;
-    if (!firstItem || !firstItem.b64_json) {
-        throw new Error("上游没有返回 b64_json");
+    const imageUrl = resolveImageUrlFromDataItem(firstItem);
+    if (!imageUrl) {
+        throw new Error("上游没有返回可用的图片地址");
     }
 
-    state.resultImageUrl = `data:image/png;base64,${firstItem.b64_json}`;
-    state.resultPrompt = firstItem.revised_prompt || "";
+    state.resultImageUrl = imageUrl;
+    state.resultPrompt = firstItem?.revised_prompt || "";
     applyRemainingPoints(data);
     state.currentHistoryId = data.historyId || null;
     state.resultInfo = buildImageResultInfo({
         responseData: data,
-        model: resolveResultModel(),
+        model: state.lastUsedModel || state.selectedModel,
         remainingPoints: state.user?.points
     });
     state.resultJson = JSON.stringify(data, null, 2);
@@ -450,7 +497,7 @@ function applyImageResponse(data, statusText) {
 
 function applyCompatibleResponse(data, statusText, displayPrompt = "") {
     const content = data?.choices?.[0]?.message?.content || "";
-    const imageUrl = extractMarkdownImageUrl(content);
+    const imageUrl = extractImageUrlFromContent(content);
     if (!imageUrl) {
         throw new Error("兼容返回里没有可解析的图片数据");
     }
@@ -461,7 +508,7 @@ function applyCompatibleResponse(data, statusText, displayPrompt = "") {
     state.currentHistoryId = data.historyId || null;
     state.resultInfo = buildImageResultInfo({
         responseData: data,
-        model: data.model || resolveResultModel(),
+        model: state.lastUsedModel || state.selectedModel,
         remainingPoints: state.user?.points
     });
     state.resultJson = JSON.stringify(data, null, 2);
@@ -479,14 +526,35 @@ function applyRemainingPoints(data) {
 }
 
 function extractMarkdownImageUrl(content) {
-    const match = String(content).match(/!\[[^\]]*]\((data:image\/[^)]+)\)/);
+    const match = String(content).match(/!\[[^\]]*]\(((?:data:image\/|https?:\/\/)[^)]+)\)/);
     return match ? match[1] : "";
 }
 
-function resolveResultModel() {
-    const responseData = parseJsonSafe(state.resultJson);
-    const responseModel = responseData?.model;
-    return responseModel || "gpt-image-2";
+function extractImageUrlFromContent(content) {
+    const markdownUrl = extractMarkdownImageUrl(content);
+    if (markdownUrl) {
+        return markdownUrl;
+    }
+
+    const normalized = String(content || "").trim();
+    if (normalized.startsWith("data:image/") || normalized.startsWith("http://") || normalized.startsWith("https://")) {
+        return normalized;
+    }
+
+    return "";
+}
+
+function resolveImageUrlFromDataItem(item) {
+    if (!item || typeof item !== "object") {
+        return "";
+    }
+    if (item.b64_json) {
+        return `data:image/png;base64,${item.b64_json}`;
+    }
+    if (item.url) {
+        return String(item.url);
+    }
+    return "";
 }
 
 function setStatus(text) {
@@ -504,6 +572,8 @@ function render() {
     elements.loadingHintText.textContent = buildLoadingHintText();
     elements.operationCostText.textContent = `每次操作消耗 ${state.imageMeta.operationCost} 积分`;
     elements.constraintsText.textContent = buildConstraintsText();
+    elements.modelSelect.value = state.selectedModel;
+    renderModelDescription();
     renderHistory();
     elements.clearHistoryButton.disabled = state.history.length === 0;
 
@@ -521,6 +591,7 @@ function render() {
     const actionsDisabled = state.busy || !canUseTools;
     elements.generatePromptInput.disabled = inputsDisabled;
     elements.generateSubmitButton.disabled = actionsDisabled;
+    elements.modelSelect.disabled = inputsDisabled;
     elements.processPromptInput.disabled = inputsDisabled;
     elements.processImageInput.disabled = inputsDisabled;
     elements.localEditToggle.disabled = inputsDisabled;
@@ -541,7 +612,8 @@ function render() {
         elements.emptyResult.hidden = true;
         elements.resultContainer.hidden = false;
         elements.resultImage.src = state.resultImageUrl;
-        elements.resultPromptText.textContent = state.resultPrompt || "无 revised prompt";
+        elements.resultPromptText.hidden = !state.resultPrompt;
+        elements.resultPromptText.textContent = state.resultPrompt || "";
         elements.resultInfoText.textContent = state.resultInfo;
         elements.downloadButton.disabled = false;
         elements.previewImage.src = state.resultImageUrl;
@@ -549,8 +621,31 @@ function render() {
         elements.emptyResult.hidden = false;
         elements.resultContainer.hidden = true;
         elements.downloadButton.disabled = true;
+        elements.resultPromptText.hidden = true;
         closeImagePreview();
     }
+}
+
+function initializeModelOptions() {
+    if (!elements.modelSelect) {
+        return;
+    }
+    elements.modelSelect.innerHTML = IMAGE_MODEL_OPTIONS.map((option) => `
+        <option value="${escapeAttribute(option.value)}">${escapeHtml(option.label)}</option>
+    `).join("");
+    if (!IMAGE_MODEL_OPTIONS.some((option) => option.value === state.selectedModel)) {
+        state.selectedModel = IMAGE_MODEL_OPTIONS[0]?.value || "gpt-image-2";
+    }
+    elements.modelSelect.value = state.selectedModel;
+    renderModelDescription();
+}
+
+function renderModelDescription() {
+    if (!elements.modelDescriptionText) {
+        return;
+    }
+    const modelOption = IMAGE_MODEL_OPTIONS.find((option) => option.value === state.selectedModel);
+    elements.modelDescriptionText.textContent = modelOption ? modelOption.description : "";
 }
 
 function formatPoints(points) {
@@ -854,6 +949,7 @@ function resetWorkspaceForView(view) {
 
     elements.processForm.reset();
     elements.maskField.hidden = true;
+    state.processSelectedFiles.forEach(revokeProcessFilePreview);
     state.processSelectedFiles = [];
     elements.processImageInput.value = "";
     elements.processMaskInput.value = "";
@@ -1103,6 +1199,11 @@ function renderSelectedProcessFiles() {
 
     elements.processSelectedFiles.innerHTML = state.processSelectedFiles.map((file, index) => `
         <div class="image-selected-file">
+            <img
+                class="image-selected-file-preview"
+                src="${escapeAttribute(resolveProcessFilePreviewUrl(file))}"
+                alt="${escapeAttribute(file.name)}"
+            >
             <span class="image-selected-file-name">${escapeHtml(file.name)}</span>
             <button
                 class="image-selected-file-remove"
@@ -1116,6 +1217,20 @@ function renderSelectedProcessFiles() {
 
 function buildProcessFileKey(file) {
     return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function resolveProcessFilePreviewUrl(file) {
+    if (!file.__previewUrl) {
+        file.__previewUrl = URL.createObjectURL(file);
+    }
+    return file.__previewUrl;
+}
+
+function revokeProcessFilePreview(file) {
+    if (file && file.__previewUrl) {
+        URL.revokeObjectURL(file.__previewUrl);
+        delete file.__previewUrl;
+    }
 }
 
 function readFileAsDataUrl(file) {

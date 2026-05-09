@@ -163,7 +163,7 @@ export OPENROUTER_API_KEY="你的 OpenRouter Key"
 
 ```bash
 export IMAGE_API_KEY="你的图片中转 Key"
-export IMAGE_API_BASE_URL="https://right.codes/gpt/v1"
+export IMAGE_API_BASE_URL="https://www.right.codes/draw"
 ```
 
 ### 2. 启动项目
