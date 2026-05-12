@@ -92,10 +92,14 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(OpenRouterException.class)
-    @ResponseStatus(HttpStatus.BAD_GATEWAY)
-    public ApiError handleOpenRouter(OpenRouterException exception) {
-        log.error("调用 OpenRouter 失败：{}", exception.getMessage(), exception);
-        return new ApiError(exception.getMessage(), Map.of());
+    public ResponseEntity<ApiError> handleOpenRouter(OpenRouterException exception) {
+        HttpStatus status = exception.getStatus() == null ? HttpStatus.BAD_GATEWAY : exception.getStatus();
+        if (status.is5xxServerError()) {
+            log.error("调用 OpenRouter 失败：{}", exception.getMessage(), exception);
+        } else {
+            log.warn("OpenRouter 返回可预期错误：{}", exception.getMessage());
+        }
+        return ResponseEntity.status(status).body(new ApiError(exception.getMessage(), Map.of()));
     }
 
     @ExceptionHandler(ImageProxyException.class)

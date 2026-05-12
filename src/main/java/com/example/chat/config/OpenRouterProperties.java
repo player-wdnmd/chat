@@ -14,6 +14,7 @@ public class OpenRouterProperties {
     private String apiKey;
     private String baseUrl;
     private String defaultModel;
+    private String fallbackModel;
     private String siteUrl;
     private String appName;
     private Double temperature;
@@ -21,4 +22,6 @@ public class OpenRouterProperties {
     private Integer maxContextMessages;
     private Duration connectTimeout;
     private Duration readTimeout;
+    private Integer maxRetries;
+    private Duration retryDelay;
 }

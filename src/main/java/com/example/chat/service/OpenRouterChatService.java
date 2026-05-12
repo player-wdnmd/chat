@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -53,11 +54,13 @@ public class OpenRouterChatService {
             throw new IllegalArgumentException("messages 不能为空。");
         }
 
-        String model = resolveModel();
+        String primaryModel = resolveModel(properties.getDefaultModel(), "openrouter.default-model");
+        String fallbackModel = normalizeModel(properties.getFallbackModel());
         log.info(
-                "准备调用 OpenRouter：conversationId={}，model={}，messageCount={}，skillCount={}",
+                "准备调用 OpenRouter：conversationId={}，model={}，fallbackModel={}，messageCount={}，skillCount={}",
                 request.conversationId(),
-                model,
+                primaryModel,
+                fallbackModel,
                 normalizedMessages.size(),
                 chatSkillService.normalizeSkillIds(user.id(), request.skillIds()).size()
         );
@@ -65,22 +68,16 @@ public class OpenRouterChatService {
         int chatCost = appProperties.getChat().getCostPerRequest();
         int remainingPoints = authService.consumePoints(user.id(), chatCost);
         try {
-            OpenRouterRequest payload = new OpenRouterRequest(
-                    model,
-                    normalizedMessages.stream()
-                            .map(message -> new OpenRouterRequest.Message(message.role(), message.content()))
-                            .toList(),
-                    properties.getTemperature(),
-                    properties.getMaxTokens(),
-                    Boolean.FALSE
-            );
-
-            OpenRouterResponse response = sendRequest(payload);
+            List<OpenRouterRequest.Message> requestMessages = normalizedMessages.stream()
+                    .map(message -> new OpenRouterRequest.Message(message.role(), message.content()))
+                    .toList();
+            OpenRouterResponse response = sendRequestWithFallback(primaryModel, fallbackModel, requestMessages);
+            String resolvedResponseModel = response.model() != null ? response.model() : primaryModel;
             String content = extractContent(response);
             OpenRouterResponse.Usage usage = response.usage();
             long latencyMs = System.currentTimeMillis() - startedAt;
             ChatResponse chatResponse = new ChatResponse(
-                    response.model() != null ? response.model() : payload.model(),
+                    resolvedResponseModel,
                     content,
                     response.id(),
                     latencyMs,
@@ -144,17 +141,105 @@ public class OpenRouterChatService {
         return configuredLimit;
     }
 
-    private String resolveModel() {
-        if (!StringUtils.hasText(properties.getDefaultModel())) {
-            throw new IllegalStateException("还没有配置 openrouter.default-model。");
+    private String resolveModel(String configuredValue, String propertyName) {
+        if (!StringUtils.hasText(configuredValue)) {
+            throw new IllegalStateException("还没有配置 " + propertyName + "。");
         }
-        return properties.getDefaultModel().trim();
+        return configuredValue.trim();
+    }
+
+    private String normalizeModel(String model) {
+        return StringUtils.hasText(model) ? model.trim() : "";
+    }
+
+    private OpenRouterResponse sendRequestWithFallback(
+            String primaryModel,
+            String fallbackModel,
+            List<OpenRouterRequest.Message> messages
+    ) {
+        List<String> candidates = new ArrayList<>();
+        candidates.add(primaryModel);
+        if (StringUtils.hasText(fallbackModel) && !fallbackModel.equals(primaryModel)) {
+            candidates.add(fallbackModel);
+        }
+
+        OpenRouterException lastException = null;
+        for (int i = 0; i < candidates.size(); i++) {
+            String candidateModel = candidates.get(i);
+            OpenRouterRequest payload = buildRequest(candidateModel, messages);
+            try {
+                return sendRequestWithRetry(payload);
+            } catch (OpenRouterException exception) {
+                lastException = exception;
+                if (i >= candidates.size() - 1 || !exception.isRetryable()) {
+                    throw exception;
+                }
+                log.warn(
+                        "OpenRouter 主模型调用失败，准备切换回退模型：fromModel={}，toModel={}，reason={}",
+                        candidateModel,
+                        candidates.get(i + 1),
+                        exception.getMessage()
+                );
+            }
+        }
+
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new OpenRouterException("OpenRouter 请求失败，未能获得有效响应。");
+    }
+
+    private OpenRouterRequest buildRequest(String model, List<OpenRouterRequest.Message> messages) {
+        return new OpenRouterRequest(
+                model,
+                messages,
+                properties.getTemperature(),
+                properties.getMaxTokens(),
+                Boolean.FALSE
+        );
+    }
+
+    private OpenRouterResponse sendRequestWithRetry(OpenRouterRequest payload) {
+        int maxRetries = properties.getMaxRetries() == null || properties.getMaxRetries() < 0 ? 1 : properties.getMaxRetries();
+        long retryDelayMillis = properties.getRetryDelay() == null ? 600L : properties.getRetryDelay().toMillis();
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return sendRequestOnce(payload);
+            } catch (OpenRouterException exception) {
+                if (!exception.isRetryable() || attempt >= maxRetries) {
+                    throw exception;
+                }
+                log.warn(
+                        "OpenRouter 请求失败，准备重试：model={}，attempt={}，maxRetries={}，reason={}",
+                        payload.model(),
+                        attempt + 1,
+                        maxRetries,
+                        exception.getMessage()
+                );
+                sleepBeforeRetry(retryDelayMillis);
+            }
+        }
+
+        throw new OpenRouterException("OpenRouter 请求失败，重试后仍未成功。");
+    }
+
+    private void sleepBeforeRetry(long retryDelayMillis) {
+        if (retryDelayMillis <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(retryDelayMillis);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new OpenRouterException("OpenRouter 重试等待被中断。", HttpStatus.BAD_GATEWAY, false, exception);
+        }
     }
 
     /**
      * 使用 Hutool HTTP 发起 OpenRouter 请求。
      */
-    private OpenRouterResponse sendRequest(OpenRouterRequest payload) {
+    private OpenRouterResponse sendRequestOnce(OpenRouterRequest payload) {
         try {
             String requestJson = objectMapper.writeValueAsString(payload);
             HttpRequest request = HttpRequest.post(properties.getBaseUrl() + "/chat/completions")
@@ -176,7 +261,13 @@ public class OpenRouterChatService {
                 String responseBody = response.body();
                 if (response.getStatus() < 200 || response.getStatus() >= 300) {
                     log.warn("OpenRouter 返回错误响应：status={}，body={}", response.getStatus(), responseBody);
-                    throw new OpenRouterException(parseErrorMessage(responseBody, response.getStatus()));
+                    HttpStatus status = HttpStatus.resolve(response.getStatus());
+                    boolean retryable = status != null && status.is5xxServerError();
+                    throw new OpenRouterException(
+                            parseErrorMessage(responseBody, response.getStatus()),
+                            status == null ? HttpStatus.BAD_GATEWAY : status,
+                            retryable
+                    );
                 }
                 return objectMapper.readValue(responseBody, OpenRouterResponse.class);
             }
@@ -247,6 +338,14 @@ public class OpenRouterChatService {
                 return message;
             }
         } catch (JsonProcessingException ignored) {
+        }
+
+        String plainTextBody = body.trim();
+        if (StringUtils.hasText(plainTextBody) && !plainTextBody.startsWith("<")) {
+            if ("Internal Server Error".equalsIgnoreCase(plainTextBody)) {
+                return "OpenRouter 上游内部错误，请稍后重试。";
+            }
+            return plainTextBody;
         }
 
         return "OpenRouter 请求失败，状态码 " + statusCode + "。";
