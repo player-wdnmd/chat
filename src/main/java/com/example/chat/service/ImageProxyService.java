@@ -432,7 +432,7 @@ public class ImageProxyService {
             return "data:image/png;base64," + firstDataItem.path("b64_json").asText();
         }
         if (firstDataItem != null && firstDataItem.hasNonNull("url")) {
-            return firstDataItem.path("url").asText();
+            return normalizeImageDataUrl(firstDataItem.path("url").asText());
         }
 
         String content = response.path("choices").isArray() && !response.path("choices").isEmpty()
@@ -440,10 +440,84 @@ public class ImageProxyService {
                 : "";
         String imageUrl = extractImageUrlFromContent(content);
         if (StringUtils.hasText(imageUrl)) {
-            return imageUrl;
+            return normalizeImageDataUrl(imageUrl);
         }
 
         throw new IllegalStateException("图片历史保存失败：响应中没有可提取的图片数据。");
+    }
+
+    private String normalizeImageDataUrl(String value) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalStateException("图片历史保存失败：图片地址为空。");
+        }
+        String normalized = value.trim();
+        if (normalized.startsWith("data:image/")) {
+            return normalized;
+        }
+        if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+            return downloadImageAsDataUrl(normalized);
+        }
+        throw new IllegalStateException("图片历史保存失败：不支持的图片地址格式。");
+    }
+
+    private String downloadImageAsDataUrl(String imageUrl) {
+        try (HttpResponse response = HttpRequest.get(imageUrl)
+                .header("Accept", "image/*")
+                .header("User-Agent", "Chat/1.0")
+                .setConnectionTimeout((int) properties.getConnectTimeout().toMillis())
+                .setReadTimeout((int) properties.getReadTimeout().toMillis())
+                .execute()) {
+            if (response.getStatus() < 200 || response.getStatus() >= 300) {
+                throw new IllegalStateException("图片历史保存失败：下载结果图片失败，状态码 " + response.getStatus() + "。");
+            }
+
+            byte[] imageBytes = response.bodyBytes();
+            if (imageBytes == null || imageBytes.length == 0) {
+                throw new IllegalStateException("图片历史保存失败：下载结果图片为空。");
+            }
+
+            String mimeType = resolveDownloadedImageMimeType(response.header("Content-Type"), imageUrl);
+            validateDownloadedImage(imageBytes, mimeType);
+            return "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
+        } catch (HttpException exception) {
+            throw new IllegalStateException("图片历史保存失败：下载结果图片时发生网络异常。", exception);
+        }
+    }
+
+    private String resolveDownloadedImageMimeType(String contentTypeHeader, String imageUrl) {
+        if (StringUtils.hasText(contentTypeHeader)) {
+            String normalized = contentTypeHeader.split(";", 2)[0].trim().toLowerCase();
+            if (properties.getAllowedMimeTypes().stream().anyMatch(normalized::equalsIgnoreCase)) {
+                return normalized;
+            }
+        }
+
+        String lowerCaseUrl = imageUrl.toLowerCase();
+        if (lowerCaseUrl.contains(".png")) {
+            return "image/png";
+        }
+        if (lowerCaseUrl.contains(".jpg") || lowerCaseUrl.contains(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lowerCaseUrl.contains(".webp")) {
+            return "image/webp";
+        }
+        return "image/png";
+    }
+
+    private void validateDownloadedImage(byte[] imageBytes, String mimeType) {
+        if (properties.getAllowedMimeTypes().stream().noneMatch(mimeType::equalsIgnoreCase)) {
+            throw new IllegalStateException("图片历史保存失败：结果图片类型不支持，仅允许：" + String.join(", ", properties.getAllowedMimeTypes()));
+        }
+
+        try {
+            BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(imageBytes));
+            if (bufferedImage == null) {
+                throw new IllegalStateException("图片历史保存失败：下载结果不是有效图片。");
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("图片历史保存失败：读取结果图片失败。", exception);
+        }
     }
 
     private String extractImageUrlFromContent(String content) {
